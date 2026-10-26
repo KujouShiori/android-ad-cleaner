@@ -2,6 +2,18 @@
 
 ## 未发布
 
+2026-10-26 新增 `run.py adapt` 四段流水线：探路 → 人工勾选 → 生成草稿 → 安全模式自检。**以下改动在最新源码中，尚未进入任何安装包。**
+
+- `adapt explore`：复用 `tool/explore.py` 只读探路。修复部分 App 进了子页回不到设置首页就整体停止探路的问题：返回改为有界重试（最多 3 次），仍回不去时重进设置页恢复并刷新首页坐标（同一个 App 最多恢复 2 次），再失败就打印失败原因、明确中断本 App 并继续下一个 App，不会死循环。输出 `探路-<型号>.tsv` 新增「人工勾选」列。
+- `adapt gen`：把人工勾选的开关生成 recipe 草稿，不碰手机。保持 `@step("...")` 字面格式（`run.py` 的步骤名解析依赖它）和 `only=` 点名式；头部带 `BUILD`/`MODELS` 与通篇「待验证」标注；保护类开关（打开才是保护）不写进草稿；没有勾选任何开关时拒绝生成，不自动决定关哪些。
+- `adapt check`：置 `AAC_REF` 走现有安全模式路径跑草稿（exec 注入 `p`/`ONLY`，与 `fast.py` 的 recipe 驱动方式一致），回读统计后输出适配报告：回读确认几个/没找到几个/待人工确认几个/未完成几段；部分完成明确表述为部分完成，不说成成功。
+- 引擎核心未改：`fast.py` 的开关、回读、安全模式逻辑，`ui_session.py`、`channel_policy.py` 均未改动；`run.py` 现有子命令行为不变。
+
+**验证**：设备无关回归 144 项通过（原 123 项 + 新增 21 项：探路 TSV 解析、草稿生成格式与 `run.py recipe_meta` 兼容、探路导航有界中断与恢复、适配报告数字与 mock 回读一致）。本轮未连接任何真机：explore / gen / check 的真机行为、导航修复在各品牌 App 上的实际效果、生成草稿的可跑性均未真机验证；测试环境中的 adb 仅作为路径存在性检查使用，未执行任何 adb 命令。
+
+**不宣称**：本工具不代表可自动适配任何机型；生成物均为待验证草稿，不等于适配完成；自检通过只证明勾选的开关「进得去、关得掉、回读确认」，转正式机型脚本前必须人工在手机上核对。文档中 Linux（arm64）adb 安装说明（`1:8.1.1-1+r23-5.4-1+eagle`，无 `adb pair`，无线调试不可用、USB 调试正常）验证日期为 2026-10-26，不代表其他版本与其他发行版。
+
+
 | 现象 | 来源 | 处理 |
 |---|---|---|
 | `tool/run.py` 的 12 条命令挤在一个近 280 行的 `main()` 里，退出码由 18 处散落的 `sys.exit` 决定——包括传输 helper `adb_shell()` 自己终止进程，以及 import 期就解析 adb 的模块常量 `ADB = adb_bin()`；命令之间没有进程内 interface，13 处测试只能 `patch.object(sys, "argv")` + `assertRaises(SystemExit)`，失败文案是 `SystemExit.code` 还是 `1` 各写各的 | 内部重构（架构体检候选 2，[ADR-0005](docs/adr/0005-run-command-handlers.md)） | 每条命令一个 `cmd_<名字>(serial, rest) -> int`，由一张 `COMMANDS` 表分派（`chan-off` / `chan-on` 两个薄包装共用一份实现）；`SystemExit` 只在 `if __name__ == "__main__": raise SystemExit(main())` 一处，handler 里不再有 `sys.exit`；错误文案由唯一的 `fail(msg)` 产生（文案进 stderr、返回 1），转发子进程码的五条（`ui-check` / `recipe` / `chan-off` / `chan-on` / `chan-scan`）逐值透出、不归一；`adb_shell()` 改抛 `DeviceLost` 交给出口渲染（`link_lost` 事件仍在构造时发），模块常量 `ADB` 改成惰性 `adb()` + 专用异常 `NoAdb`。改抛之后有两处旧代码看不见的陷阱，都已封住：`quickapp off` / `on` 里 `except (RuntimeError, OSError, ValueError)` 原来抓不到 `SystemExit`，改抛会把断线报成「某个组件关闭失败」（#293 反对的混判），两处 `except` 前各加一条 `except (adb_link.DeviceLost, NoAdb): raise`；`recipe` 的 `finally` 里恢复插电常亮，旧 `sys.exit("文案")` 要等 `finally` 跑完才打印，新写法改成先算 `message` / `rc`、`finally` 之后再渲染。两处行为变化：进程内调 `main()` 时错误文案立即写 stderr（旧 `sys.exit("文案")` 由解释器在进程退出时才打），以及没有 adb 时 `-h` 与无参数不再被 import 期拦下（以前连帮助都看不到）；`devices` 与参数写错的路径仍先报「找不到 adb」。对拍：`tests/baselines/run_cli.json` 由 `git archive e319126` 的干净副本对一份假 adb 跑出，29 组——落在 10 条命令上共 28 组（`devices` 2、`check` 2、`backup` 3、`recipe` 1、`suspend` 4、`unsuspend` 3、`quickapp` 6、`finish` 2、`status-json` 2、`dev-off` 3），加参数格式错 1 组，逐字节比对退出码与两路输出，每组配守卫断言（假 adb 收到的 argv 序列，或「一条都没发」）；`ui-check` / `chan-scan` / `chan-off` / `chan-on` 会真起子进程、输出取决于本机 adb 服务，改在进程内替身化后断言转发码与子命令参数。`python -m unittest discover -s tests` 586 项全过（基线干净副本 `origin/main@e319126` 568 项，新增 18 项，2 项既有 skip 照旧） |

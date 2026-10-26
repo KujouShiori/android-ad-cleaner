@@ -412,7 +412,6 @@ def script_cmd(script, *args):
     return [sys.executable, os.path.join(TOOL, script), *args]
 
 
-<<<<<<< HEAD
 def cmd_devices(rest):
     out = subprocess.run([adb(), "devices"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     rows = [l.split("\t") for l in out.splitlines()[1:] if "\t" in l]
