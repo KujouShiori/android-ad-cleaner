@@ -6,6 +6,9 @@
   python3 tool/run.py -s 序列号 ui-check           只读：检查手机读屏服务，不点击任何开关
   python3 tool/run.py -s 序列号 backup             改动前快照，存到 backups/<型号>-<时间>/
   python3 tool/run.py -s 序列号 recipe [段名 …]     跑本机型机型脚本（不带段名=全跑）
+  python3 tool/run.py -s 序列号 adapt explore [包名 …]  只读：探路新机型 → 探路-<型号>.tsv（末列供人工勾选）
+  python3 tool/run.py adapt gen 探路-<型号>.tsv      把人工勾选的开关生成 recipe 草稿（不碰手机；草稿≠适配）
+  python3 tool/run.py -s 序列号 adapt check 草稿.py  安全模式自检草稿，输出适配报告（找不到就如实说找不到）
   python3 tool/run.py -s 序列号 chan-scan          只读：列出开着的营销通知渠道 → backups/.../channels.tsv
   python3 tool/run.py -s 序列号 chan-off 清单.tsv   关掉清单里的渠道
   python3 tool/run.py -s 序列号 chan-on  清单.tsv   还原
@@ -409,6 +412,7 @@ def script_cmd(script, *args):
     return [sys.executable, os.path.join(TOOL, script), *args]
 
 
+<<<<<<< HEAD
 def cmd_devices(rest):
     out = subprocess.run([adb(), "devices"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     rows = [l.split("\t") for l in out.splitlines()[1:] if "\t" in l]
@@ -732,6 +736,8 @@ def dispatch(a):
         print(__doc__); return 0
     if a[0] == "devices":
         return cmd_devices(a[1:])
+    if a[0] == "adapt":
+        return py("adapt.py", *a[1:])
     # 以前 adb 在 import 期就解析，找不到时**任何**调用（含参数写错）都先报这一句；保留同样的先后。
     adb()
     if a[0] != "-s" or len(a) < 3:
