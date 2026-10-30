@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "tool"))
 import adb_link
 import fast
 import run
+from fixtures import phone_mock
 
 
 class VivoV2417ARecipeTests(unittest.TestCase):
@@ -32,7 +33,7 @@ class VivoV2417ARecipeTests(unittest.TestCase):
         self.assertEqual(len(meta["steps"]), 8)
 
     def test_missing_target_cannot_close_similarly_named_service(self):
-        p = Mock()
+        p = phone_mock()
         p.switches.return_value = [("天气服务异常提醒.有异常时提醒", True, (1, 2))]
         scope = self.load(p)
         with self.assertRaisesRegex(RuntimeError, "未识别全部目标"):
@@ -40,7 +41,7 @@ class VivoV2417ARecipeTests(unittest.TestCase):
         p.off.assert_not_called()
 
     def test_unrelated_service_change_is_not_verified(self):
-        p = Mock()
+        p = phone_mock()
         p.switches.side_effect = [
             [("天气服务.接收热点资讯", True, (1, 2)), ("气象预警", True, (1, 3))],
             [("天气服务.接收热点资讯", False, (1, 2)), ("气象预警", False, (1, 3))],
@@ -52,7 +53,7 @@ class VivoV2417ARecipeTests(unittest.TestCase):
         self.assertEqual(p.off.call_args.kwargs["keep"], ["气象预警"])
 
     def test_reverted_switch_is_not_verified(self):
-        p = Mock()
+        p = phone_mock()
         p.switches.return_value = [("服务推荐.说明", True, (1, 2))]
         scope = self.load(p)
         with self.assertRaisesRegex(RuntimeError, "回读未确认"):
@@ -60,7 +61,7 @@ class VivoV2417ARecipeTests(unittest.TestCase):
         self.assertEqual(scope["VERIFIED_SWITCHES"], 0)
 
     def test_real_engine_keeps_non_target_with_matching_prefix(self):
-        p = Mock()
+        p = phone_mock()
         p.H, p.miss, p.changed = 3000, 0, []
         p.tree.return_value = ET.Element("hierarchy")
         p.focus.return_value = "com.example/.Settings"
@@ -85,7 +86,7 @@ class VivoV2417ARecipeTests(unittest.TestCase):
         p.click.assert_called_once_with(1, 600)
 
     def test_store_handles_confirmation_and_state_in_title_without_reopening(self):
-        p = Mock()
+        p = phone_mock()
         states = {"个性化推荐": True, "个性化广告推荐": True}
         pending = []
         names = list(states)
@@ -111,7 +112,7 @@ class VivoV2417ARecipeTests(unittest.TestCase):
         self.assertFalse(any(states.values()))
 
     def test_step_failure_is_visible_and_disconnect_is_not_swallowed(self):
-        p = Mock()
+        p = phone_mock()
         p.locked.return_value = False
         scope = self.load(p)
         scope["ONLY"].clear()
@@ -123,7 +124,7 @@ class VivoV2417ARecipeTests(unittest.TestCase):
             scope["step"]("天气")(lost)
 
     def test_home_restoring_hiboard_opens_settings_without_swiping_again(self):
-        p = Mock()
+        p = phone_mock()
         p.focus.side_effect = [
             "com.vivo.weather/.WeatherSettings", "HiBoard", "HiBoard",
             "com.vivo.hiboard/com.vivo.hiboard.settings.AppletSettingActivity",
@@ -137,7 +138,7 @@ class VivoV2417ARecipeTests(unittest.TestCase):
         p.go.assert_called_once_with("设置", "更多设置")
 
     def test_unknown_home_cannot_trigger_swipe_or_settings_click(self):
-        p = Mock()
+        p = phone_mock()
         p.focus.side_effect = ["com.vivo.weather/.WeatherSettings", "com.example/.Other"]
         scope = self.load(p)
         with self.assertRaisesRegex(RuntimeError, "未回到系统桌面"):
@@ -147,8 +148,7 @@ class VivoV2417ARecipeTests(unittest.TestCase):
         p.go.assert_not_called()
 
     def test_direct_ad_settings_does_not_dismiss_switch_description_as_popup(self):
-        p = Mock()
-        p.safe_mode = False                   # Phone 构造处声明的字段：Mock 上默认是真值，会误进安全模式
+        p = phone_mock()
         p.locked.return_value = False
         p.focus.return_value = "com.android.settings/com.android.settings.Settings$AdAndPrivacyActivityForOsTwo"
         p.reader.shell.return_value = Mock(exit_code=0, output="Starting: Intent")   # Phone.start 走 reader
