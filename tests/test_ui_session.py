@@ -2,7 +2,6 @@
 import os
 os.environ.setdefault("AAC_NO_SOUND", "1")     # 客户端提示音：测试里不出声
 import contextlib
-import importlib.util
 import io
 from pathlib import Path
 import subprocess
@@ -13,6 +12,8 @@ import unittest
 import time
 import uuid
 from unittest.mock import Mock, patch
+
+from gui import app
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tool"))
@@ -155,10 +156,8 @@ class LifecycleTests(unittest.TestCase):
 
 class TaskTests(unittest.TestCase):
     def test_conflict_skips_following_ui_task_but_keeps_cleanup_and_first_error(self):
-        spec = importlib.util.spec_from_file_location("aac_session_test", ROOT / "gui/app.py")
-        app = importlib.util.module_from_spec(spec); spec.loader.exec_module(app)
-        with tempfile.TemporaryDirectory() as directory, patch.object(app, "DATA", directory):
-            api = app.Api()
+        with tempfile.TemporaryDirectory() as directory:
+            api = app.Api(directory)
             api.job = {"running": True, "cancel": False, "lines": [], "results": [], "serial": "test", "t0": 0}
             failed = Mock(stdout=io.StringIO("UIAUTOMATION_BUSY: first failure\n")); failed.wait.return_value = 1
             finish = Mock(stdout=io.StringIO("插电常亮已改回 7\n")); finish.wait.return_value = 0

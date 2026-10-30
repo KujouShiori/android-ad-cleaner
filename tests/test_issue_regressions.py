@@ -1,6 +1,5 @@
 """社区反馈回归：不用手机，模拟页面与系统回读，不以 UI 状态代替执行结果。"""
 import contextlib
-import importlib.util
 import io
 import json
 import ntpath
@@ -16,6 +15,8 @@ from unittest.mock import Mock, patch
 import xml.etree.ElementTree as ET
 
 from PIL import Image
+
+from gui import app
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tool"))
@@ -712,9 +713,6 @@ class QuickappKeepTests(unittest.TestCase):
 
 class DesktopTests(unittest.TestCase):
     def test_gui_smoke_output_works_with_non_utf8_console(self):
-        spec = importlib.util.spec_from_file_location("aac_gui_test", ROOT / "gui/app.py")
-        app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(app)
         buffer = io.BytesIO()
         stream = io.TextIOWrapper(buffer, encoding="ascii", newline="\n")
         with patch.object(sys, "stdout", stream), patch.object(sys, "stderr", stream):
@@ -724,21 +722,17 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(buffer.getvalue().decode("utf-8"), "GUI smoke: 页面通过\n")
 
     def test_failed_scan_reaches_gui_as_error(self):
-        spec = importlib.util.spec_from_file_location("aac_gui_test", ROOT / "gui/app.py")
-        app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(app)
-        api = app.Api()
-        api._run = Mock(return_value=("", "读取失败", 1))
-        with tempfile.TemporaryDirectory() as directory, patch.object(app, "DATA", directory):
+        with tempfile.TemporaryDirectory() as directory:
+            api = app.Api(directory)
+            api._run = Mock(return_value=("", "读取失败", 1))
             self.assertEqual(api.chan_scan("test"), {"error": "读取失败", "detail": "读取失败"})
 
     def test_gui_loads_file_uri_without_http_server(self):
-        spec = importlib.util.spec_from_file_location("aac_gui_test", ROOT / "gui/app.py")
-        app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(app)
         fake = types.SimpleNamespace(create_window=Mock(), start=Mock())
-        with patch.dict(sys.modules, {"webview": fake}), patch.object(app, "IS_WIN", True), \
-             patch.object(sys, "argv", ["app.py"]):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.dict(sys.modules, {"webview": fake}), patch.object(app, "IS_WIN", True), \
+             patch.object(app, "data_dir", return_value=directory), \
+             patch.object(app, "find_adb", return_value=None), patch.object(sys, "argv", ["app.py"]):
             app.main()
         url = fake.create_window.call_args.args[1]
         self.assertTrue(url.startswith("file:///"))

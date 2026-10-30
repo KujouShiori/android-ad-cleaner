@@ -22,6 +22,7 @@ import uiautomator2 as u2
 from ui_session import connect
 from troubleshooting import UI_RECOVERY, XIAOMI_INPUT, accessibility_summary, input_blocked
 import adb_link
+import backups
 import wait
 from reader import Reader
 from row import SWITCH_ROW_DEPTH, bounds, own, title_of
@@ -924,7 +925,7 @@ def execute(p, cmd, rest):
             sys.exit(1)
         print(f"\n机型脚本跑完：关了 {len(p.changed)} 个，{time.time()-t:.0f} 秒")
         import datetime
-        logdir = os.environ.get("AAC_BACKUPS") or os.path.dirname(os.path.abspath(rest[0]))
+        logdir = backups.root_from_env() or os.path.dirname(os.path.abspath(rest[0]))
         try:
             os.makedirs(logdir, exist_ok=True)
             with open(os.path.join(logdir, "run-log.txt"), "a", encoding="utf-8") as f:

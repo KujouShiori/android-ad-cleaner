@@ -1,5 +1,4 @@
 """错误日志上报：内容脱敏、预览与发送一致、限频、安装编号、服务器回应处理。不联网。"""
-import importlib.util
 import io
 import json
 from pathlib import Path
@@ -8,14 +7,9 @@ import unittest
 from unittest.mock import patch
 import urllib.error
 
+from gui import app
+
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def load_app():
-    spec = importlib.util.spec_from_file_location("aac_report_test", ROOT / "gui/app.py")
-    app = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(app)
-    return app
 
 
 class Response(io.BytesIO):
@@ -28,11 +22,10 @@ class Response(io.BytesIO):
 
 class ReportTests(unittest.TestCase):
     def setUp(self):
-        self.app = load_app()
+        self.app = app
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
-        self.app.DATA = self.dir.name
-        self.api = self.app.Api()
+        self.api = self.app.Api(self.dir.name)
         home = str(Path.home())
         self.api.last_status = {"info": {"brand": "Xiaomi", "name": "Xiaomi 17", "model": "25113PN0EC",
                                          "os": "OS3.0.40.0", "build": "BP2A", "android": "16"}}

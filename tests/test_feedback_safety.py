@@ -1,6 +1,5 @@
 """0.2.3 用户反馈：无障碍排查只读、找机位通知保护以及旧清单还原。"""
 import contextlib
-import importlib.util
 import io
 from pathlib import Path
 import subprocess
@@ -9,6 +8,8 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+
+from gui import app
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tool"))
@@ -119,12 +120,9 @@ class PhotoSpotTests(unittest.TestCase):
 
 class GuiFeedbackTests(unittest.TestCase):
     def setUp(self):
-        spec = importlib.util.spec_from_file_location("aac_feedback_test", ROOT / "gui/app.py")
-        self.app = importlib.util.module_from_spec(spec); spec.loader.exec_module(self.app)
+        self.app = app
         self.directory = tempfile.TemporaryDirectory(); self.addCleanup(self.directory.cleanup)
-        patcher = patch.object(self.app, "DATA", self.directory.name)
-        patcher.start(); self.addCleanup(patcher.stop)
-        self.api = self.app.Api()
+        self.api = self.app.Api(self.directory.name)
 
     def test_gui_filters_old_scan_results_so_select_all_cannot_reinclude_feature(self):
         self.api._run = Mock(return_value=("com.example\trecommend\t找机位通知\ncom.shop\tpromo\t活动优惠\n", "", 0))

@@ -3,7 +3,6 @@
 import os
 os.environ.setdefault("AAC_NO_SOUND", "1")     # 客户端提示音：测试里不出声
 import contextlib
-import importlib.util
 import io
 from pathlib import Path
 import sys
@@ -12,6 +11,8 @@ import types
 import unittest
 from unittest.mock import Mock, patch
 import xml.etree.ElementTree as ET
+
+from gui import app
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tool"))
@@ -271,9 +272,7 @@ class ReferenceRecipeTests(unittest.TestCase):
 class ScrubTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        spec = importlib.util.spec_from_file_location("aac_logs_1028", ROOT / "gui/app.py")
-        cls.app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(cls.app)
+        cls.app = app
 
     def test_user_folder_moved_to_another_drive(self):
         # 一份报告的路径是 E:\360MoveData\Users\<真名>\Desktop\…，两层脱敏都没盖住
@@ -290,8 +289,8 @@ class ScrubTests(unittest.TestCase):
 
     def test_disconnect_skips_remaining_steps_once(self):
         # 断线后快应用、挂起、收尾各打一遍同样的排查说明（约 20 份报告）
-        with tempfile.TemporaryDirectory() as directory, patch.object(self.app, "DATA", directory):
-            api = self.app.Api()
+        with tempfile.TemporaryDirectory() as directory:
+            api = self.app.Api(directory)
             api.job = {"running": True, "cancel": False, "lines": [], "results": [], "serial": "test", "t0": 0}
             failed = Mock(stdout=io.StringIO(adb_link.HINT + "\n")); failed.wait.return_value = 1
             with patch.object(self.app.subprocess, "Popen", side_effect=[failed]) as popen, \

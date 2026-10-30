@@ -18,7 +18,7 @@
   python3 tool/run.py -s 序列号 dev-off --yes      从电脑上关闭开发者模式和 USB 调试（执行后电脑与手机断开）
   python3 tool/run.py -s 序列号 status-json        只读：一次输出全部状态（JSON，给图形界面用）
 """
-import datetime, glob, json, os, re, subprocess, sys, time
+import glob, json, os, re, subprocess, sys, time
 from pathlib import Path
 for _st in (sys.stdout, sys.stderr):
     try:
@@ -28,10 +28,11 @@ for _st in (sys.stdout, sys.stderr):
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adb_link
 import troubleshooting
+from backups import Backups, root_from_env
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(ROOT, "tool")
-BACKUPS = os.environ.get("AAC_BACKUPS") or os.path.join(ROOT, "backups")
+BACKUPS = root_from_env() or os.path.join(ROOT, "backups")
 
 # 各品牌常见的系统广告包（快应用另列在 QUICKAPP）。只在机主同意后挂起；挂起可一条命令还原。
 AD_PKGS = {
@@ -215,19 +216,18 @@ def wait_unlocked(serial, timeout=90):
 
 def latest_backup(serial, create=False):
     m = info(serial)["model"]
-    hits = sorted(glob.glob(os.path.join(BACKUPS, f"{m}-*")))
-    if hits and not create:
-        return hits[-1]
-    d = os.path.join(BACKUPS, f"{m}-{datetime.datetime.now():%Y%m%d-%H%M}")
-    os.makedirs(d, exist_ok=True)
-    return d
+    backups = Backups(BACKUPS)
+    latest = backups.latest(m)
+    if latest and not create:
+        return latest
+    return backups.create(m)
 
 
 def display_backup_path(path):
     """Windows 程序和备份可能位于不同盘符，此时不能计算相对路径。"""
     path = os.fspath(path)
     home = os.path.expanduser("~")
-    if os.environ.get("AAC_BACKUPS"):
+    if root_from_env():
         return "~" + path[len(home):] if path.startswith(home + os.sep) else path
     try:
         return os.path.relpath(path, ROOT)

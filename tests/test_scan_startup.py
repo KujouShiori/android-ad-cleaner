@@ -2,7 +2,6 @@
 import os
 os.environ.setdefault("AAC_NO_SOUND", "1")     # 客户端提示音：测试里不出声
 import contextlib
-import importlib.util
 import io
 from pathlib import Path
 import subprocess
@@ -11,6 +10,8 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+
+from gui import app
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tool"))
@@ -95,14 +96,10 @@ class ReadOnlyTests(unittest.TestCase):
 
 class ErrorTests(unittest.TestCase):
     def setUp(self):
-        spec = importlib.util.spec_from_file_location("aac_startup_test", ROOT / "gui/app.py")
-        self.app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.app)
+        self.app = app
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        p = patch.object(self.app, "DATA", self.directory.name)
-        p.start(); self.addCleanup(p.stop)
-        self.api = self.app.Api()
+        self.api = self.app.Api(self.directory.name)
         self.api._adb = Mock(return_value="Android Debug Bridge version 1.0.41")
 
     def test_scan_failure_keeps_root_cause_and_redacts_before_saving(self):
