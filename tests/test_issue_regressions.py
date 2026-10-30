@@ -391,7 +391,7 @@ class QuickappTests(unittest.TestCase):
 
     def test_force_stop_follows_successful_suspend(self):
         events = []
-        initial = {"pkg": "com.example.quick", "name": "测试快应用", "closed": False, "method": "suspend"}
+        initial = {"pkg": "com.example.quick", "name": "测试快应用", "keep": False, "closed": False, "method": "suspend"}
         closed = dict(initial, closed=True)
         with patch.object(run, "quickapps", side_effect=[[initial], [closed]]), \
              patch.object(run, "suspended", return_value=True), patch.object(run, "record"), \
@@ -596,6 +596,74 @@ class PackageListTests(unittest.TestCase):
              patch.object(run, "sh", return_value=""):
             entries = run.quickapps("test-device")
         self.assertFalse(entries[0]["closed"])
+
+
+class QuickappKeepTests(unittest.TestCase):
+    """Issue #335：快应用平台承载负一屏快递详情页，quickapp off 必须保留它。"""
+    PKGS = ("com.nearme.instant.platform", "com.oppo.instant.local.service", "com.nearme.instant.card")
+    HAP = "com.nearme.instant.platform/.dispatch.activity.HapDispatcherActivity"
+
+    def phone(self, hap=HAP):
+        state = {"suspended": set()}
+
+        def shell(_s, cmd):
+            if cmd.startswith("pm query-activities"):
+                return f"  {hap}\n" if hap else ""
+            return ""
+
+        def suspend(_s, cmd):
+            if cmd.startswith("pm suspend --user 0 "):
+                state["suspended"].add(cmd.rsplit(" ", 1)[-1])
+            return ""
+
+        return state, shell, suspend
+
+    def run_quickapp(self, state, shell, suspend, *argv):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(run, "installed", side_effect=lambda _s, p: p in self.PKGS), \
+             patch.object(run, "pkg_list", return_value=""), \
+             patch.object(run, "quickapp_switch", return_value=None), \
+             patch.object(run, "suspended", side_effect=lambda _s, p: p in state["suspended"]), \
+             patch.object(run, "sh", side_effect=shell), \
+             patch.object(run, "sh_all", side_effect=suspend), \
+             patch.object(run, "latest_backup", return_value=directory), \
+             patch.object(sys, "argv", ["run.py", "-s", "test", "quickapp", *argv]), \
+             contextlib.redirect_stdout(out := io.StringIO()):
+            run.main()
+        return out.getvalue()
+
+    def test_off_suspends_the_two_ad_components_but_keeps_the_platform(self):
+        state, shell, suspend = self.phone()
+        text = self.run_quickapp(state, shell, suspend, "off")
+        self.assertEqual(state["suspended"], {"com.oppo.instant.local.service", "com.nearme.instant.card"})
+        self.assertIn("保留 快应用平台", text)
+        self.assertIn("广告仍可能跳进快应用", text)
+
+    def test_check_labels_the_kept_component(self):
+        state, shell, suspend = self.phone()
+        state["suspended"].update({"com.oppo.instant.local.service", "com.nearme.instant.card"})
+        text = self.run_quickapp(state, shell, suspend)
+        self.assertIn("（保留：", text)
+        self.assertIn("可挂起的快应用组件已关闭（保留项除外）", text)
+        self.assertIn(f"hap:// 链接仍由 {self.HAP} 接管（保留项）", text)
+
+    def test_check_still_asks_to_close_when_a_switchable_component_is_open(self):
+        state, shell, suspend = self.phone()
+        text = self.run_quickapp(state, shell, suspend)
+        self.assertIn("关闭：python3 tool/run.py", text)
+
+    def test_quickapps_flags_only_the_kept_package(self):
+        state, shell, suspend = self.phone()
+        with patch.object(run, "installed", side_effect=lambda _s, p: p in self.PKGS), \
+             patch.object(run, "pkg_list", return_value=""), \
+             patch.object(run, "quickapp_switch", return_value=None), \
+             patch.object(run, "suspended", return_value=False), \
+             patch.object(run, "sh", side_effect=shell):
+            entries = run.quickapps("test-device")
+        self.assertEqual({e["pkg"]: e["keep"] for e in entries},
+                         {"com.nearme.instant.platform": True,
+                          "com.oppo.instant.local.service": False,
+                          "com.nearme.instant.card": False})
 
 
 class DesktopTests(unittest.TestCase):

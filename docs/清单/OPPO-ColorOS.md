@@ -111,13 +111,15 @@
 
 ## 12. 快应用（要 adb，要你同意）
 
-| 包 | 作用 |
-|---|---|
-| `com.nearme.instant.platform` | 快应用平台，接管 `hap://` 链接 |
-| `com.oppo.instant.local.service` | 快应用本地服务 |
-| `com.nearme.instant.card` | 快应用卡片（部分机型有） |
+| 包 | 作用 | 挂起后 |
+|---|---|---|
+| `com.nearme.instant.platform` | 快应用平台，接管 `hap://` 链接 | **不要挂**：负一屏快递卡片能显示缓存，点「全部」打不开详情页（弹「快应用服务框架目前无法使用」）。`quickapp off` 自动保留 |
+| `com.oppo.instant.local.service` | 快应用本地服务 | 快递卡片与详情页正常 |
+| `com.nearme.instant.card` | 快应用卡片（部分机型有） | 快递卡片与详情页正常 |
 
-用电脑跑：`run.py quickapp` 检测，`quickapp off` 关闭。见 [07-快应用](../07-快应用.md)。
+PMX110 / ColorOS 17 上逐个单独挂起实测（Issue #335，2026-10-30）。
+
+用电脑跑：`run.py quickapp` 检测，`quickapp off` 关闭（保留 `platform`，广告仍可能通过 `hap://` 跳进快应用）。见 [07-快应用](../07-快应用.md)。
 
 - ⚠️ 不要挂 `com.heytap.quicksearchbox`（下拉搜索）和 `com.coloros.assistantscreen`（负一屏）。
 
