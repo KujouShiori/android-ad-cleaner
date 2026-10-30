@@ -225,7 +225,7 @@ Failure [only root can delete system app for a particular user]
 | 快应用 | `com.vivo.hybrid` **未安装** | `quickapp` 无组件可处理 |
 | 浏览器 / 天气 | 没有 `com.vivo.browser`；`com.vivo.weather` 未安装（另装 `com.vivo.dream.weather`） | 天气未实测，待补 |
 | 营销通知 | 通知页宿主是 **`com.android.systemui`**，不是 `com.vivo.systemuiplugin`；`CHANNEL_NOTIFICATION_SETTINGS` 的 `CHANNEL_ID` 被忽略（直达只能打开应用总页）；渠道行在「类别」分组下面，首屏没有；渠道页顶栏**没有** `originui_vtoolbar_normal_title` id | 本机 `chan-off` 11 个渠道全部跳过，见 [#336](https://github.com/rddmwmddr/android-ad-cleaner/issues/336)。人工按「顶栏文字 == 渠道名 + 同行右侧『允许通知』开关」关掉 8 个 |
-| 运营消息 | 渠道名就叫「运营消息」（`VPushChannel_0`），属营销分类；`VPushChannel_1/2` 是系统消息 / 即时消息，属服务类要保留 | `chan-scan` 会被 `SKIP` 里的「消息」滤掉，见 [#337](https://github.com/rddmwmddr/android-ad-cleaner/issues/337) |
+| 运营消息 | 渠道名就叫「运营消息」（`VPushChannel_0`），属营销分类；`VPushChannel_1/2` 是系统消息 / 即时消息，属服务类要保留 | `chan-scan` 按分类号放行 `VPushChannel_0/4/6`，不再被 `SKIP` 的「消息」滤掉，`1/2` 仍跳过，见 [#337](https://github.com/rddmwmddr/android-ad-cleaner/issues/337) |
 
 ## V2417A（OriginOS 6 / Android 16）差异
 

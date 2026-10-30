@@ -91,6 +91,20 @@ class ScreenshotTests(unittest.TestCase):
 
 @patch.object(chan.time, "sleep")
 class ChannelTests(unittest.TestCase):
+    def scan(self, *channels):
+        """喂一份 dumpsys 渠道行，跑一次完整的 scan；假设备，不连手机。"""
+        rows = "".join(
+            f"        NotificationChannel{{mId='{cid}', mName={name}, mDescription=null, mImportance=2, mDeleted=false}}\n"
+            for cid, name in channels)
+        result = types.SimpleNamespace(returncode=0, stderr="",
+                                       stdout="PackagePreferences:\n      AppSettings: com.example importance=DEFAULT\n" + rows)
+        with patch.object(subprocess, "run", return_value=result), \
+             patch.object(chan, "app_labels", return_value={}), \
+             patch.object(sys, "argv", ["chan_fast.py", "-s", "test", "scan"]), \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            chan.main()
+        return out.getvalue()
+
     def test_bom_and_crlf_do_not_drop_first_channel(self, _sleep):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory, "channels.tsv")
@@ -184,6 +198,36 @@ class ChannelTests(unittest.TestCase):
              contextlib.redirect_stdout(io.StringIO()) as out:
             chan.main()
         self.assertEqual(out.getvalue(), "com.zongheng.reader\tflhd\t福利活动\n")
+
+    def test_vivo_marketing_category_is_listed_despite_operation_message_name(self, _sleep):
+        # #337：vivo 营销分类 VPushChannel_0 的渠道名就叫「运营消息」，以前被 SKIP 的单字「消息」剔掉
+        self.assertEqual(self.scan(("VPushChannel_0", "运营消息")), "com.example\tVPushChannel_0\t运营消息\n")
+
+    def test_vivo_service_categories_stay_out_of_scan(self, _sleep):
+        # 同一台 V1986A：VPushChannel_1/2 是系统 / 即时消息，属服务通知，必须继续跳过（#337）
+        self.assertEqual(self.scan(("VPushChannel_0", "运营消息"), ("VPushChannel_1", "系统消息"),
+                                   ("VPushChannel_2", "即时消息")),
+                         "com.example\tVPushChannel_0\t运营消息\n")
+
+    def test_vivo_marketing_categories_4_and_6_are_listed(self, _sleep):
+        # AGENTS.md §5 点名 0/4/6 三个分类号；只认 0 的正则会让这条红（#337）
+        self.assertEqual(self.scan(("VPushChannel_4", "运营消息"), ("VPushChannel_6", "运营消息")),
+                         "com.example\tVPushChannel_4\t运营消息\n"
+                         "com.example\tVPushChannel_6\t运营消息\n")
+
+    def test_vivo_marketing_id_still_needs_marketing_keywords(self, _sleep):
+        # 分类号只越过 SKIP，不越过营销关键词：否则 VPushChannel_0 下的服务类渠道
+        # 会进客户端清单并被默认勾选（gui/app.py 的 SERVICE 不含「消息」）（#337）
+        self.assertEqual(self.scan(("VPushChannel_0", "订单物流")), "")
+
+    def test_photo_spot_protection_outranks_vendor_marketing_id(self, _sleep):
+        # 名字带「推荐」会命中营销关键词、分类号也命中，找机位仍必须最高优先（#337）
+        self.assertEqual(self.scan(("VPushChannel_0", "找机位推荐")), "")
+
+    def test_operation_message_name_outside_vivo_marketing_ids_is_unchanged(self, _sleep):
+        # 名字含「消息」的其他渠道行为不变：非 vivo ID、vivo 的其他分类号、近似前缀都不放行（#337）
+        self.assertEqual(self.scan(("promo", "运营消息"), ("VPushChannel_7", "运营消息"),
+                                   ("VPushChannel_0x", "运营消息")), "")
 
     def test_notification_dump_failure_is_not_empty_success(self, _sleep):
         p = channel_phone()
