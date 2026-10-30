@@ -77,11 +77,23 @@ class LatestTests(unittest.TestCase):
                 self.assertEqual(newest, old_run_latest(self.root, MODEL))
 
     def test_missing_root_returns_none_like_the_gui_did(self):
-        # 守卫：确实走到了 FileNotFoundError 那条分支，而不是「目录里什么都没有」
         missing = os.path.join(self.root, "not-created")
         self.assertFalse(os.path.exists(missing))
         self.assertIsNone(old_gui_latest(missing, MODEL))
         self.assertIsNone(Backups(missing).latest(MODEL))
+
+    def test_missing_root_really_takes_the_file_not_found_branch(self):
+        # 守卫：不是「目录里恰好什么都没有」，而是 os.listdir 真的抛了 FileNotFoundError 被接住
+        with patch("backups.os.listdir", side_effect=FileNotFoundError) as listed:
+            self.assertIsNone(Backups(self.root).latest(MODEL))
+        listed.assert_called_once()
+
+    def test_glob_metacharacters_in_the_model_stay_literal(self):
+        # 型号不会带 [ ] * ?。选 listdir 语义（gui 侧的原实现）：glob 版会把 A[B]C-* 当字符类，
+        # 匹配到 ABC-20260101-1000。两边原来就不一致，这里钉住选中的那一套。
+        Path(self.root, "ABC-20260101-1000").mkdir()
+        self.assertEqual(old_run_latest(self.root, "A[B]C"), os.path.join(self.root, "ABC-20260101-1000"))
+        self.assertIsNone(Backups(self.root).latest("A[B]C"))
 
     def test_gui_fallback_outranks_dated_backups(self):
         # 字典序 "gui" > "2026..."：只要 `<型号>-gui` 存在，它就是「最近一份」。这是现状行为，不改成取最新。

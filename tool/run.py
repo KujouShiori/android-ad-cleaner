@@ -631,13 +631,14 @@ def main():
             steps, rb = meta["steps"], meta["build"]
             ok = (not ref) and build_ok(i, rb)
         ads = [{"pkg": p, "suspended": suspended(s, p)} for p in AD_PKGS.get(i["brand"], []) if installed(s, p)]
+        backup = Backups(BACKUPS).latest(i["model"])
         print(json.dumps({
             "info": i, "locked": locked(s),
             "recipe": os.path.relpath(r, ROOT) if r else None, "recipe_ref": ref, "recipe_build": rb, "recipe_ok": ok, "steps": steps,
             "ads": ads, "quickapps": quickapps(s),
             "stay_on": sh(s, "settings get global stay_on_while_plugged_in"),
             "dev": sh(s, "settings get global development_settings_enabled") == "1",
-            "backup": os.path.relpath(latest_backup(s), BACKUPS) if glob.glob(os.path.join(BACKUPS, f"{i['model']}-*")) else None,
+            "backup": os.path.relpath(backup, BACKUPS) if backup else None,
             "fold_open": fold_open(s),
             "input_blocked": input_blocked(s, i["brand"]),
         }, ensure_ascii=False))

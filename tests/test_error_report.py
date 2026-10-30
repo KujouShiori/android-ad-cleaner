@@ -77,6 +77,14 @@ class ReportTests(unittest.TestCase):
         self.assertNotEqual(value, "serial-or-junk")
         self.assertRegex(value, r"^[0-9a-f-]{36}$")
 
+    def test_install_id_creates_the_data_directory_it_writes_into(self):
+        # 以前靠 import 期建好目录；现在只有 ensure() 会建，缺了它这里就写不进去
+        missing = Path(self.dir.name, "not-created-yet")
+        api = self.app.Api(str(missing))
+        self.assertFalse(missing.exists())
+        self.assertRegex(api._install_id(), r"^[0-9a-f-]{36}$")
+        self.assertTrue(Path(missing, "install-id").exists())
+
     def test_local_hourly_limit(self):
         payload = self.api.report_payload()
         reply = lambda *a, **k: Response(json.dumps({"status": "ok", "id": "x"}).encode())

@@ -131,14 +131,20 @@ def adb_ok(path):
     return bool(m) and int(m.group(1)) >= 41
 
 
-def find_adb(data):
+def find_adb(platform_tools):
     exe = "adb.exe" if IS_WIN else "adb"
     last = (os.path.join(os.environ.get("LOCALAPPDATA", ""), "Android", "Sdk", "platform-tools", "adb.exe"),
             "/opt/homebrew/bin/adb", "/usr/local/bin/adb")
-    for c in _tool("adb_link").adb_candidates(first=(os.path.join(data.platform_tools, exe),), last=last):
+    for c in _tool("adb_link").adb_candidates(first=(os.path.join(platform_tools, exe),), last=last):
         if adb_ok(c):
             return c
     return None
+
+
+def client_api():
+    """入口（窗口与截图脚本）共用的构造：数据目录建好，adb 按既定顺序找。"""
+    data = ClientData(data_dir()).ensure()
+    return Api(data.root, adb=find_adb(data.platform_tools))
 
 
 def adb_present(adb, serial):
@@ -931,8 +937,7 @@ def main():
     if len(sys.argv) > 2 and sys.argv[1] == "--cli":
         cli_main(); return
     import webview
-    data = ClientData(data_dir()).ensure()
-    api = Api(data.root, adb=find_adb(data))
+    api = client_api()
     smoke = "--smoke-gui" in sys.argv
     if smoke:
         _fix_stdio()

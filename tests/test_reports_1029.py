@@ -179,7 +179,7 @@ class GuiTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *a): return False
         with tempfile.TemporaryDirectory() as d:
-            api = self.app.Api(d)
+            api = self.app.Api(str(Path(d, "fresh")))
             sources = [("Google 官网", "https://g/x.zip", digest), ("腾讯云镜像", "https://t/x.zip", digest)]
             urls = []
 
@@ -194,7 +194,7 @@ class GuiTests(unittest.TestCase):
                 api._download()
             self.assertEqual(urls, ["https://g/x.zip", "https://t/x.zip"])
             self.assertIn("not a zip", api.dl["msg"])           # 校验过了，走到解压
-            self.assertFalse(Path(d, "platform-tools.zip").exists())
+            self.assertFalse(Path(d, "fresh", "platform-tools.zip").exists())
             with patch.object(api, "adb_sources", return_value=[("腾讯云镜像", "https://t/x.zip", "0" * 64)]), \
                  patch.object(self.app.urllib.request, "urlopen", return_value=Reply(body)):
                 api._download()

@@ -13,17 +13,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 CODE = """
-import json, sys
+import json, os, sys
 before = list(sys.path)
 import gui.app
-print(json.dumps({
-    "path_changed": sys.path != before,
-    "tool_modules": [m for m in ("adb_link", "channel_policy", "troubleshooting", "backups") if m in sys.modules],
-    "data": gui.app.data_dir(),
-}))
+tool = os.path.join(gui.app.BASE, "tool") + os.sep
+loaded = sorted(m.__name__ for m in list(sys.modules.values())
+                if getattr(m, "__file__", None) and str(m.__file__).startswith(tool))
+print(json.dumps({"path_changed": sys.path != before, "tool_modules": loaded, "data": gui.app.data_dir()}))
 """
-
-TOOL_MODULES = ("adb_link", "channel_policy", "troubleshooting", "backups")
 
 
 class ImportSideEffectTests(unittest.TestCase):
