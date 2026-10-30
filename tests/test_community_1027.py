@@ -456,6 +456,28 @@ class GuiTests(unittest.TestCase):
         self.assertIn("仅充电模式下允许 ADB 调试", hint)
         self.assertEqual(self.app.usb_hint([]), "")
 
+    def test_usb_hint_names_the_phone_that_has_the_debug_interface(self):
+        # #357：电脑上另插着华硕的设备（不是手机）时，不能把用户的华为手机说成华硕
+        hint = self.app.usb_hint([("华硕", "ASUS USB 网卡", "OK", False), ("华为", "HUAWEI M30", "OK", True)])
+        self.assertIn("华为", hint)
+        self.assertNotIn("华硕", hint)
+        self.assertIn("仅充电模式下允许 ADB 调试", hint)
+        # 设备管理器返回的先后顺序不该改变结论
+        reversed_hint = self.app.usb_hint([("华为", "HUAWEI M30", "OK", True),
+                                           ("华硕", "ASUS USB 网卡", "OK", False)])
+        self.assertEqual(hint, reversed_hint)
+
+    def test_usb_hint_lists_every_phone_instead_of_guessing(self):
+        hint = self.app.usb_hint([("华硕", "ROG Phone", "OK", True), ("华为", "HUAWEI M30", "OK", True)])
+        self.assertIn("多台手机", hint)
+        self.assertIn("华硕", hint)
+        self.assertIn("华为", hint)
+        self.assertIn("只留要处理的那一台", hint)
+        # 一台都不在调试模式时同样逐台列出，不挑第一台当结论
+        hint = self.app.usb_hint([("华硕", "ROG Phone", "OK", False), ("华为", "HUAWEI M30", "OK", False)])
+        self.assertIn("华硕（没有调试接口）", hint)
+        self.assertIn("华为（没有调试接口）", hint)
+
     def test_diagnostics_include_device_count_and_other_adb(self):
         api = self.app.Api()
         api.adb = "/opt/tools/adb"

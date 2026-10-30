@@ -206,8 +206,24 @@ def usb_hint(found):
     """把设备管理器的结果说成一句人话；没有手机设备时返回空。"""
     if not found:
         return ""
-    brand = found[0][0]
+    # 品牌只从带调试接口的设备里取：电脑上还插着别的东西时，列表第一台可能根本不是用户的手机（#357）。
     adb = [f for f in found if f[3]]
+    picked = adb or found
+    brands = list(dict.fromkeys(f[0] for f in picked))
+    if len(brands) > 1:
+        # 多台手机同时插着：不猜哪台是用户的，逐台说状态，让用户自己只留一台。
+        lines = []
+        for b in brands:
+            items = [f for f in picked if f[0] == b and f[3]]
+            if not items:
+                lines.append(f"{b}（没有调试接口）")
+            elif any(f[2].upper() != "OK" for f in items):
+                lines.append(f"{b}（调试接口的驱动没有装好）")
+            else:
+                lines.append(f"{b}（调试接口在，但 adb 没连上）")
+        return ("电脑识别到多台手机：" + "、".join(lines)
+                + "。只留要处理的那一台插着，重新插线后再检测。")
+    brand = brands[0]
     if adb and any(f[2].upper() != "OK" for f in adb):
         head = f"电脑识别到{brand}手机的调试接口，但驱动没有装好。"
     elif adb:
