@@ -19,6 +19,7 @@
 | Redmi K70 Pro（23117RK66C） | HyperOS OS3.0.306.0.WNMCNXM，Android 16 | 2026-10-29～30 实测；专用脚本与验证范围见 [K70 Pro 实测](../14-红米K70Pro实测.md) |
 | Redmi Note 14 5G（24094RAD4C） | HyperOS OS3.0.306.0.WOQCNXM，Android 16 | 2026-10-30 真机实测；专用八段脚本首轮关闭 20 项（记账修复前统计，不含普通点击关掉的 4 项），复跑 291 秒、21 项回读、调整 0 项 |
 | Xiaomi 13 Ultra（2304FPN6DC） | HyperOS OS3.0.308.0.WMACNXM，Android 16 | 2026-10-28 实测；九段脚本复跑通过，约 3 分 16 秒 |
+| Xiaomi 14 Pro（23116PN5BC） | HyperOS OS3.0.308.0.WNBCNXM，Android 16 | 2026-10-29 社区实测（[Issue #317](https://github.com/rddmwmddr/android-ad-cleaner/issues/317)）；与 13 Ultra 共用 `recipes/xiaomi-2304FPN6DC`，安全模式下九段跑通、每步回读，仅浏览器「搜索设置」未命中 |
 
 **Xiaomi 17 Ultra（2512BPNDAC）与 18 Pro Max / 18 Fold 的三处差异**：系统底包和它们相同（CP2A.260605.016），这台是**标准版，不是徕卡版**。① 「系统工具广告」是独立页面，要**在设置首页搜索「系统广告」**才能进，「隐私与安全 → 更多安全设置 → 广告服务」那条路径上只有「个性化广告推荐」；② 浏览器工具栏最右的「设置」按钮点进去是「页面布局」子页，主设置要走 底部「菜单」→ 弹窗右上角齿轮，「隐私和安全」在主设置页最底部（第 13 项之后，要滚）；③ 日历「用户体验计划」在设置页倒数第二项，右上「更多」对 uiautomator 的点击不响应，只能 `adb shell input tap`。机型脚本 `recipes/xiaomi-2512BPNDAC/` 已按这三点写。
 
@@ -40,7 +41,7 @@ Xiaomi Pad 7 是平板，设置首页左右分栏，差异单独列在文末的[
 
 REDMI K80 至尊版（HyperOS 2 / Android 16）结构差异：「隐私与安全」首页是权限中心，没有「更多安全设置」，广告服务用设置顶部搜索直达；商店冷启动可能落「福利推广页」，先点「回到首页」再走「我的」；主题商店直接拉 com.android.thememanager/.ThemeResourceProxyTabActivity 最稳（themestore 冷启动的重定向过渡窗会让引擎前台校验误判）；主题/商店底部标签的无障碍名带「未选中,」前缀，要按屏幕底部位置点。
 
-13 Ultra 是 HyperOS 3，入口和 18 系列的 OS4 不完全一样，差异单独列在文末的[「13 Ultra 差异」](#xiaomi-13-ultraos30308的差异)。
+13 Ultra 和 14 Pro 是 HyperOS 3，共用 `recipes/xiaomi-2304FPN6DC`，入口和 18 系列的 OS4 不完全一样，差异单独列在文末的[「13 Ultra 差异」](#xiaomi-13-ultraos30308的差异)。
 
 ---
 
@@ -263,6 +264,8 @@ java.lang.SecurityException: Injecting input events requires the caller (or the 
 - **全局搜索**：我的热榜比 18 系列多一个「千问」，在话题页里。其余：推荐总开关；热搜 → 资讯、全网；生活 → 精选；娱乐 → 影视、小说；话题 → 千问、知乎。
 - **天气和日历**：天气 → 右上「更多设置」→ 设置 → 用户体验计划 → 天气视频卡片、内容推广；日历 → 右上「设置」→ 菜单里再点「设置」→ 用户体验计划 → 内容推广。天气预警、异常天气提醒保留。
 - **负一屏**：与 18 系列相同：设置 → 推荐卡片、热门活动；隐私设置 → 个性化推荐。搜索框、出行助手保留。
+
+**Xiaomi 14 Pro（23116PN5BC，OS3.0.308.0.WNBCNXM）**与 13 Ultra 共用这份脚本。2026-10-29 社区实测（[Issue #317](https://github.com/rddmwmddr/android-ad-cleaner/issues/317)）九段全部跑完、每步回读，其余各段入口都对得上；唯一没命中的是**浏览器「搜索设置」**——这一页在本机没找到脚本要关的「猜你想搜」开关。是这层入口和 13 Ultra 不同，还是这台本来就没这个开关，还没有结论。
 
 ---
 

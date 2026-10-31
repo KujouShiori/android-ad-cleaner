@@ -44,6 +44,8 @@
 
 | 魅族不在品牌族表：除 21 Pro 外所有魅族机型 `check` 只报「机型脚本：没有」，连「同品牌参考 …」这句都没有，尽管仓库里有 `recipes/meizu-MEIZU 21 Pro` | [#379](https://github.com/rddmwmddr/android-ad-cleaner/issues/379) | `run.py` 的 `FAMILY` 补 `meizu`，`REFERENCE` 显式钉 `meizu-MEIZU 21 Pro`（不靠目录名排序取第一份，社区再提一份魅族脚本时别的机型用的参考不跟着变）。只加这两条不够：魅族脚本的 `step()` 每段硬校验型号与 `BUILD`、不认 `--ref`，借过去 8 段全部是「型号或系统版本不符，未操作」。改成安全模式下不因型号/版本拒跑，逐段找入口、找不到就跳过，与另外四族的参考脚本一致。代价是 21 Pro 本机版本不符时也从「每段停下」变成「逐段跑」，整页全关仍由安全模式挡着。魅族广告包名无证据，`AD_PKGS` 不补。`python -m unittest discover -s tests` 683 项全过（基线干净副本 `origin/main@e1a8001` 678 项，新增 5 项，2 项既有 skip 照旧）。MEIZU 22 真机未复测 |
 
+| 小米 14 Pro（23116PN5BC，HyperOS OS3.0.308.0.WNBCNXM / Android 16）不在 13 Ultra 脚本的 `MODELS` 里，`check` 报「本型号没有；同品牌参考 `recipes/xiaomi-M154FF`」，而 M154FF 是按 HyperOS OS4 录的；用户只能手工指定 `recipes/xiaomi-2304FPN6DC` 并强制安全模式 | [#317](https://github.com/rddmwmddr/android-ad-cleaner/issues/317) | `recipes/xiaomi-2304FPN6DC/recipe.py` 的 `MODELS` 加入 `23116PN5BC`，与 `2304FPN6DC` 共用这份 OS3.0.308 脚本（写法同 `xiaomi-M154FF` 里的 18 Fold）。脚本内容不变：不新增段、不改已命中的开关、不动其它型号。型号命中后「是否参考」为假，`cmd_recipe` 的 `safe_mode` 只剩版本比对：报告者的 `ro.build.display.id` 是 Android 底包 `BP2A.250605.031.A3`，HyperOS 号 `OS3.0.308.0.WNBCNXM` 与录制版本 `OS3.0.308` 对得上，不再打印安全模式提示。报告者原轮是手工指定脚本 + 安全模式跑的：9 段全完、19 项开关关闭且每步回读，浏览器「搜索设置」一页没命中目标开关（票面列为 out of scope，是这层入口不同还是这台没有这个开关仍未确认）。`python -m unittest discover -s tests` 689 项全过（基线干净副本 `origin/main@450a204` 684 项，新增 5 项，2 项既有 skip 照旧）。正常模式整轮未真机复测 |
+
 ## 0.2.9 · 2026-10-30
 
 Rikki Lv 的手机连接重构和华为同名渠道行修复（#287）；合并 12 个社区 PR：10 个新机型脚本、1 个华为营销通知命令行工具、同一型号按系统版本选脚本。
