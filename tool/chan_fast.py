@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """营销通知渠道（通用版，走 fast 引擎）。
-  chan_fast.py -s SERIAL scan             只读：列出开着的、名字像营销的渠道（候选，人工挑）；第四列是应用名
+  chan_fast.py -s SERIAL scan             只读：列出开着的、名字像营销或属于厂商营销分类（vivo VPushChannel_0/4/6）
+                                          的渠道（候选，人工挑）；第四列是应用名
                                           （读应用名时在 /data/local/tmp 临时放一个 3 KB 的文件，用完删掉）
   chan_fast.py -s SERIAL verify 清单.tsv   只读：清单里还开着几个
   chan_fast.py -s SERIAL off 清单.tsv      逐个打开渠道页关掉
@@ -78,6 +79,11 @@ SKIP = re.compile(r"下载|更新|安装|上传|订单|物流|快递|交易|支�
                   r"|上层显示"     # 「“钱包”正在其他应用的上层显示内容」是悬浮窗提示，名字带「内容」被误选（#115）
                   r"|提取|传输|已共享|正在进行", re.I)   # 识屏「内容提取」（系统锁定）、三星「内容已传输」等功能通知（错误日志 10-27）
 RETRY_MAX = 10
+
+# vivo 把营销推送固定编在 VPushChannel_0/4/6（AGENTS.md §5）。渠道名常是「运营消息」，
+# 会被 SKIP 的单字「消息」剔掉；分类号是厂商固定值，比渠道名可靠，越过的只有 SKIP，
+# 营销关键词仍要命中，否则同 ID 下的服务类渠道会混进客户端默认勾选（#337）。
+VIVO_MARKETING = re.compile(r"^VPushChannel_(?:0|4|6)$", re.I)
 
 # ---------- 一项的结局 ----------
 # 每个出口返回一个 Outcome；怎么记账（算不算失败、要不要重试、算不算拨动了、复查是否豁免）
@@ -654,7 +660,8 @@ def run(a):
         rows = []
         for (pk, cid), (name, imp, deleted) in sorted(d.items()):
             if (imp != 0 and not deleted and not app_off.get(pk) and KW.search(name + " " + cid)
-                    and not SKIP.search(name) and not protected_channel(name, cid)):
+                    and (VIVO_MARKETING.match(cid) or not SKIP.search(name))
+                    and not protected_channel(name, cid)):
                 if truncated(cid):
                     short += 1
                 elif (pk, cid) in locked:
