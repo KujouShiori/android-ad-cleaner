@@ -136,6 +136,57 @@ class HandlerInterfaceTests(unittest.TestCase):
         self.assertIn("手机一直锁屏", err.getvalue())
         self.assertFalse(child.called)
 
+    def test_recipe_restore_failure_replaces_the_lock_message(self):
+        """锁屏超时后恢复插电常亮又断线：旧实现里 `finally` 的异常顶掉挂起的 `SystemExit`，
+        stderr 只剩恢复那一条。所以锁屏文案要等 `finally` 跑完才定。"""
+        calls = []
+
+        def shell(_serial, command):
+            calls.append(command)
+            if len(calls) == 3:                 # 第 3 条是 finally 里的恢复
+                raise adb_link.DeviceLost("恢复断线")
+            return "15"
+
+        err = io.StringIO()
+        with self.recipe(wait_unlocked={"return_value": False}), patch.object(run, "sh", side_effect=shell), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            self.assertEqual(run.main(["-s", "S", "recipe"]), 1)
+        self.assertEqual(err.getvalue(), "恢复断线\n")
+
+    VIVO_QUICKAPP = {"pkg": "com.vivo.hybrid", "name": "快应用", "keep": False, "closed": False,
+                     "method": "setting", "suspended": False, "tested": True, "running": False, "used": 0}
+
+    def check_link_lost_is_not_a_component_failure(self, sub):
+        """`except RuntimeError` 原来抓不到 `SystemExit`，断线是当场中止整条命令；
+        改抛 `DeviceLost` 后它会变成「某个组件失败」——#293 明说不能这么报。"""
+        err = io.StringIO()
+        with patch.object(run, "quickapps", return_value=[self.VIVO_QUICKAPP]), \
+             patch.object(run, "set_quickapp_service", side_effect=adb_link.DeviceLost("连接断了")), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            self.assertEqual(run.main(["-s", "S", "quickapp", sub]), 1)
+        self.assertEqual(err.getvalue(), "连接断了\n")
+
+    def test_quickapp_off_reports_link_lost_instead_of_a_component_failure(self):
+        self.check_link_lost_is_not_a_component_failure("off")
+
+    def test_quickapp_on_reports_link_lost_instead_of_a_component_failure(self):
+        self.check_link_lost_is_not_a_component_failure("on")
+
+    def test_help_does_not_need_adb(self):
+        """ADR-0005 声明的行为变化：没有 adb 时帮助照常输出（旧实现 import 期就退出了）。"""
+        with patch.object(run, "adb", side_effect=run.NoAdb(adb_link.NO_ADB)), \
+             contextlib.redirect_stdout(out := io.StringIO()):
+            self.assertEqual(run.main(["-h"]), 0)
+            self.assertEqual(run.main([]), 0)
+        self.assertIn("手机去广告", out.getvalue())
+
+    def test_bad_arguments_still_report_missing_adb_first(self):
+        """参数写错时也先报「找不到 adb」：这与旧实现 import 期的先后一致，别在搬 adb() 时弄反。"""
+        err = io.StringIO()
+        with patch.object(run, "adb", side_effect=run.NoAdb(adb_link.NO_ADB)), contextlib.redirect_stderr(err):
+            self.assertEqual(run.main(["-s", "S"]), 1)
+        self.assertEqual(err.getvalue(), adb_link.NO_ADB + "\n")
+
     def test_link_lost_becomes_one_message_and_exit_code_one(self):
         err = io.StringIO()
         with patch.object(run, "sh", side_effect=adb_link.DeviceLost("连接断了")), \

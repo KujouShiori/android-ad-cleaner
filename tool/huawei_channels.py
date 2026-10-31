@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import re
 import shlex
+import sys
 import time
 
 import adb_link
@@ -299,7 +300,12 @@ def main(argv=None):
     try:
         result = execute(args.serial, load_items(args.list), want_on=args.action == "on",
                          verify=args.action == "verify")
-    except (OSError, ValueError, RuntimeError, ScreenLocked, adb_link.DeviceLost) as error:
+    except adb_link.DeviceLost as error:
+        # `run.latest_backup` 经 `run.adb_shell` 抛断线。ADR-0005 之前它是 SystemExit，
+        # 一路穿过下面的 except 结束进程，只有整段排查说明进 stderr；保持那个出口。
+        print(str(error), file=sys.stderr)
+        return 1
+    except (OSError, ValueError, RuntimeError, ScreenLocked) as error:
         print("未完成：" + str(error))
         return 1
     print(f"调整 {result.changed} 项，已是目标状态 {result.already} 项，原有总通知屏蔽 {result.blocked} 项")

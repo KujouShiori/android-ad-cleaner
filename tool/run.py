@@ -461,13 +461,18 @@ def cmd_recipe(serial, rest):
     if safe_mode:
         print("⚠ 安全模式：这份机型脚本不是按这台的型号和系统版本录的。只关脚本里点名的开关，找不到入口的步骤跳过。")
     stay_on = sh(serial, "settings get global stay_on_while_plugged_in")
+    message, rc = "", 0
     try:
         sh(serial, "settings put global stay_on_while_plugged_in 7")
-        if not wait_unlocked(serial):
-            return fail("✗ 手机一直锁屏，本步骤没有执行。请解锁手机、保持亮屏后重试")
-        return py("fast.py", "-s", serial, "run", r, *(["--ref"] if safe_mode else []), *rest)
+        if wait_unlocked(serial):
+            rc = py("fast.py", "-s", serial, "run", r, *(["--ref"] if safe_mode else []), *rest)
+        else:
+            message = "✗ 手机一直锁屏，本步骤没有执行。请解锁手机、保持亮屏后重试"
     finally:
+        # 恢复插电常亮先于报错：旧代码里 sys.exit 挂起的文案要等 finally 跑完才打印，
+        # 恢复这一步自己失败时，stderr 上只有那一条（恢复的错顶掉了锁屏文案）。
         sh(serial, f"settings put global stay_on_while_plugged_in {int(stay_on) if stay_on.isdigit() else 0}")
+    return fail(message) if message else rc
 
 
 def cmd_chan_scan(serial, rest):
@@ -590,6 +595,8 @@ def cmd_quickapp(serial, rest):
             elif q["method"] == "setting":
                 try:
                     print(set_quickapp_service(serial))
+                except (adb_link.DeviceLost, NoAdb):
+                    raise                      # 断线不是这条命令的失败，别降级成「某个组件没关掉」（#293）
                 except (RuntimeError, OSError, ValueError) as e:
                     why[q["pkg"]] = str(e)
         for p in todo:
@@ -624,6 +631,8 @@ def cmd_quickapp(serial, rest):
             if q["method"] == "setting":
                 try:
                     print(set_quickapp_service(serial, restore=True))
+                except (adb_link.DeviceLost, NoAdb):
+                    raise                      # 同上：断线交给出口，不写成「还原失败」
                 except (RuntimeError, OSError, ValueError) as e:
                     print(f"  ✗ {e}"); failures += 1
             if q["suspended"]:
@@ -703,10 +712,10 @@ def dispatch(a):
         print(__doc__); return 0
     if a[0] == "devices":
         return cmd_devices(a[1:])
+    # 以前 adb 在 import 期就解析，找不到时**任何**调用（含参数写错）都先报这一句；保留同样的先后。
+    adb()
     if a[0] != "-s" or len(a) < 3:
         return fail("命令格式：run.py -s <序列号> <命令>。先跑 run.py devices 看序列号")
-    # 以前 adb 在 import 期就解析、找不到当场退出；这里保留同样的先后：先确认 adb，再碰命令。
-    adb()
     handler = COMMANDS.get(a[2])
     if handler is None:
         print(__doc__); return 0
