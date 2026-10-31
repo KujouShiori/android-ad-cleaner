@@ -58,9 +58,13 @@ def _():
         if p.tap("全部关闭", exact=True, scrolls=0):
             p.confirm()                       # 有的版本会弹确认框
             time.sleep(0.5)
-            p.changed.append(("广告跟踪", "全部关闭（更多选项菜单）"))
-            return
-        p.back()                              # 菜单开了但没点成：收起后退回逐个关
+            still = [t for t, c, _ in p.switches() if c]
+            if not still:
+                p.changed.append(("广告跟踪", "全部关闭（更多选项菜单）"))
+                return
+            p.say(f"  ! 「全部关闭」后这一屏仍有 {len(still)} 个开关开着，退回逐项关")
+        else:
+            p.back()                          # 菜单开了但没点成：收起后退回逐个关
     p.miss = 0
     p.off(page="广告跟踪", max_screens=40)
 
