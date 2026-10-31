@@ -90,6 +90,16 @@ def tap_bottom_tab(name):
     return False
 
 
+def wait_bottom_tab(name, tries=5):
+    """主题商店冷启动先出开屏或更新层，底部栏可能晚几秒才稳定。"""
+    for _ in range(tries):
+        p.dismiss()
+        if tap_bottom_tab(name):
+            return True
+        time.sleep(0.8)
+    return False
+
+
 def maybe(name, scrolls=6):
     """可选入口：有就点，没有不报「走丢」。"""
     return p.entry(name, scrolls=scrolls)
@@ -193,8 +203,7 @@ def _():
     time.sleep(3)
     if p.find("跳过广告"):
         p.tap("跳过广告", scrolls=0)
-    p.dismiss()
-    if not tap_bottom_tab("我的"):
+    if not wait_bottom_tab("我的"):
         raise RuntimeError("主题商店底部「我的」标签没有找到")
     p.dismiss()
     if not gear():

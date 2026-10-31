@@ -45,6 +45,17 @@ class Redmi24094RAD4CRecipeTests(unittest.TestCase):
         self.assertIn('p.find("跳过广告")', self.source)
         self.assertIn('p.tap("跳过广告", scrolls=0)', self.source)
 
+    def test_theme_waits_for_the_bottom_tab_to_settle(self):
+        p = Mock()
+        scope = {"p": p, "ONLY": ["__no_steps__"]}
+        with contextlib.redirect_stdout(io.StringIO()):
+            exec(compile(self.source, str(self.path), "exec"), scope)
+        scope["tap_bottom_tab"] = Mock(side_effect=[False, False, True])
+        scope["time"] = Mock()  # 换掉 recipe 自己的 time 绑定；改全局 time.sleep 会漏到后面的用例
+        self.assertTrue(scope["wait_bottom_tab"]("我的"))
+        self.assertEqual(scope["tap_bottom_tab"].call_count, 3)
+        self.assertEqual(p.dismiss.call_count, 3)
+
     def test_plain_tap_fallback_confirms_and_verifies_only_named_switches(self):
         p = Mock()
         p.changed = []
