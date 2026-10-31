@@ -1,8 +1,9 @@
 """同一型号按系统版本选机型脚本变体（PR #338），以及变体要进安装包。不用手机。"""
-import importlib.util
 from pathlib import Path
 import sys
 import unittest
+
+from gui.bundle_data import bundle_data
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tool"))
@@ -27,10 +28,7 @@ class VariantTests(unittest.TestCase):
         self.assertEqual(self.pick("PHK110", "OnePlus", "", "PHK110_16.0.5.701(CN01)"), "oneplus-PHK110/recipe.py")
 
     def test_variants_are_packaged(self):
-        spec = importlib.util.spec_from_file_location("bundle_variants", ROOT / "gui/bundle_data.py")
-        bundle = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(bundle)
-        shipped = {Path(src).relative_to(ROOT).as_posix() for src, _ in bundle.bundle_data(ROOT)}
+        shipped = {Path(src).relative_to(ROOT).as_posix() for src, _ in bundle_data(ROOT)}
         for variant in ROOT.glob("recipes/*/recipe_*.py"):
             self.assertIn(variant.relative_to(ROOT).as_posix(), shipped)
 

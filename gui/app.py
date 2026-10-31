@@ -5,7 +5,7 @@
 后台：tool/run.py、tool/fast.py、tool/chan_fast.py，以子进程运行，日志实时回传界面。
 打包后没有独立的 Python，子进程用「本程序 --cli 脚本名 参数…」的方式启动。
 """
-import hashlib, json, os, platform, re, runpy, subprocess, sys, threading, time, urllib.error, urllib.request, uuid, zipfile
+import hashlib, importlib, json, os, platform, re, runpy, subprocess, sys, threading, time, urllib.error, urllib.request, uuid, zipfile
 from pathlib import Path
 
 APP_NAME = "安卓去广告"
@@ -14,25 +14,59 @@ FROZEN = getattr(sys, "frozen", False)
 BASE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TOOL = os.path.join(BASE, "tool")
 IS_WIN = platform.system() == "Windows"
-sys.path.insert(0, TOOL)
-from channel_policy import protected_channel
-from troubleshooting import UI_RECOVERY, is_ui_connection_error
-import adb_link
+
+
+def _tool(name):
+    """tool/ 是命令行脚本目录，不在包里：真要用某个工具模块时才把它加进 sys.path。
+
+    import 这个客户端本身不碰 sys.path、也不加载 tool/ 下的文件，测试用正常 import 拉起来。
+    """
+    if TOOL not in sys.path:
+        sys.path.insert(0, TOOL)
+    return importlib.import_module(name)
 
 
 def data_dir():
     if IS_WIN:
-        d = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "AndroidAdCleaner")
-    elif platform.system() == "Darwin":
-        d = os.path.expanduser("~/Library/Application Support/AndroidAdCleaner")
-    else:
-        d = os.path.expanduser("~/.local/share/android-ad-cleaner")
-    os.makedirs(d, exist_ok=True)
-    return d
+        return os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "AndroidAdCleaner")
+    if platform.system() == "Darwin":
+        return os.path.expanduser("~/Library/Application Support/AndroidAdCleaner")
+    return os.path.expanduser("~/.local/share/android-ad-cleaner")
 
 
-DATA = data_dir()
-BACKUPS = os.path.join(DATA, "backups")
+class ClientData:
+    """客户端数据的落点。构造只算路径，ensure() 才建目录。"""
+
+    def __init__(self, root):
+        self.root = os.fspath(root)
+
+    @property
+    def backups(self):
+        return os.path.join(self.root, "backups")
+
+    @property
+    def logs(self):
+        return os.path.join(self.root, "logs")
+
+    @property
+    def pause(self):
+        return os.path.join(self.root, "pause")
+
+    @property
+    def install_id(self):
+        return os.path.join(self.root, "install-id")
+
+    @property
+    def platform_tools(self):
+        return os.path.join(self.root, "platform-tools")
+
+    @property
+    def adb_zip(self):
+        return os.path.join(self.root, "platform-tools.zip")
+
+    def ensure(self):
+        os.makedirs(self.root, exist_ok=True)
+        return self
 
 
 # ---------- 命令行模式：打包后子进程走这里 ----------
@@ -97,21 +131,27 @@ def adb_ok(path):
     return bool(m) and int(m.group(1)) >= 41
 
 
-def find_adb():
+def find_adb(platform_tools):
     exe = "adb.exe" if IS_WIN else "adb"
     last = (os.path.join(os.environ.get("LOCALAPPDATA", ""), "Android", "Sdk", "platform-tools", "adb.exe"),
             "/opt/homebrew/bin/adb", "/usr/local/bin/adb")
-    for c in adb_link.adb_candidates(first=(os.path.join(DATA, "platform-tools", exe),), last=last):
+    for c in _tool("adb_link").adb_candidates(first=(os.path.join(platform_tools, exe),), last=last):
         if adb_ok(c):
             return c
     return None
+
+
+def client_api():
+    """入口（窗口与截图脚本）共用的构造：数据目录建好，adb 按既定顺序找。"""
+    data = ClientData(data_dir()).ensure()
+    return Api(data.root, adb=find_adb(data.platform_tools))
 
 
 def adb_present(adb, serial):
     """手机此刻是否连着（adb 状态为 device）；先给它 10 秒回来。"""
     if not adb:
         return False
-    return adb_link.Connection(serial, adb=adb).alive(wait=10)
+    return _tool("adb_link").Connection(serial, adb=adb).alive(wait=10)
 
 
 CHIME_GAP = 3       # 秒：几件事挤在一起时只响一次
@@ -136,14 +176,12 @@ def chime():
         pass
 
 
-def pause_file():
-    """客户端点「暂停」时创建、点「继续」时删掉；引擎在安全的位置看它（fast.pause_point）。"""
-    return os.path.join(DATA, "pause")
-
-
-def child_env(adb):
+def child_env(adb, backups):
     e = dict(os.environ)
-    e.update({"ADB": adb or "", "ADBUTILS_ADB_PATH": adb or "", "AAC_BACKUPS": BACKUPS,
+    # 事件开关只由本客户端在跑任务时打开。用户 shell 里碰巧导出了它也不能生效：
+    # `_run()` 那些一次性命令会把输出直接解析（`status()` 取末行当 JSON）。
+    e.pop("AAC_EVENTS", None)
+    e.update({"ADB": adb or "", "ADBUTILS_ADB_PATH": adb or "", "AAC_BACKUPS": backups,
               "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1", "AAC_GUI": "1"})
     if adb:
         e["PATH"] = os.path.dirname(adb) + os.pathsep + e.get("PATH", "")
@@ -156,6 +194,34 @@ def cmd_for(script, *args):
         exe = cli if IS_WIN and os.path.exists(cli) else sys.executable     # Windows 用命令行版，输出不丢
         return [exe, "--cli", script, *args]
     return [sys.executable, "-u", os.path.join(TOOL, script), *args]
+
+
+class Runner:
+    """启动 tool/ 子进程。环境变量每次启动时现取：下载完 adb 之后不用再同步第二份状态。"""
+
+    def __init__(self, env_for):
+        self.env_for = env_for
+
+    def run(self, script, *args, timeout=180):
+        r = subprocess.run(cmd_for(script, *args), capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", env=self.env_for(), timeout=timeout, creationflags=NOWIN)
+        return r.stdout, r.stderr, r.returncode
+
+    def spawn(self, script, *args, env_extra=None):
+        env = dict(self.env_for(), **(env_extra or {}))
+        return subprocess.Popen(cmd_for(script, *args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, encoding="utf-8", errors="replace", env=env,
+                                creationflags=NOWIN, bufsize=1)
+
+
+class Task:
+    """一个步骤。uses_ui：这一步要连读屏，前一步因读屏被占用失败时跳过它。
+    channels 非 None 表示这一步是关营销通知：运行前把勾选的渠道写进 channels.tsv，
+    args 由 `_work()` 换成 `-s <序列号> off <清单>`。"""
+
+    def __init__(self, title, script, args=(), uses_ui=False, channels=None):
+        self.title, self.script, self.args = title, script, args
+        self.uses_ui, self.channels = uses_ui, channels
 
 
 def os_name():
@@ -206,8 +272,24 @@ def usb_hint(found):
     """把设备管理器的结果说成一句人话；没有手机设备时返回空。"""
     if not found:
         return ""
-    brand = found[0][0]
+    # 品牌只从带调试接口的设备里取：电脑上还插着别的东西时，列表第一台可能根本不是用户的手机（#357）。
     adb = [f for f in found if f[3]]
+    picked = adb or found
+    brands = list(dict.fromkeys(f[0] for f in picked))
+    if len(brands) > 1:
+        # 多台手机同时插着：不猜哪台是用户的，逐台说状态，让用户自己只留一台。
+        lines = []
+        for b in brands:
+            items = [f for f in picked if f[0] == b and f[3]]
+            if not items:
+                lines.append(f"{b}（没有调试接口）")
+            elif any(f[2].upper() != "OK" for f in items):
+                lines.append(f"{b}（调试接口的驱动没有装好）")
+            else:
+                lines.append(f"{b}（调试接口在，但 adb 没连上）")
+        return ("电脑识别到多台手机：" + "、".join(lines)
+                + "。只留要处理的那一台插着，重新插线后再检测。")
+    brand = brands[0]
     if adb and any(f[2].upper() != "OK" for f in adb):
         head = f"电脑识别到{brand}手机的调试接口，但驱动没有装好。"
     elif adb:
@@ -301,8 +383,11 @@ SERVICE = re.compile(r"TETHERING|热点|ENVELOPE|红包|Auto lock|盗窃|hotspot
 
 
 class Api:
-    def __init__(self):
-        self.adb = find_adb()
+    def __init__(self, data_dir, adb=None, runner=None):
+        self.data = ClientData(data_dir)
+        self.backups = _tool("backups").Backups(self.data.backups)
+        self.adb = adb
+        self.runner = runner or Runner(self._child_env)
         self.job = None
         self.lock = threading.Lock()
         self.dl = {"state": "idle", "pct": 0, "msg": ""}
@@ -311,9 +396,12 @@ class Api:
         self.last_devices = ""
         self.report_times = []
 
+    def _child_env(self):
+        return child_env(self.adb, self.data.backups)
+
     # ----- 基础 -----
     def env(self):
-        return {"adb": self.adb, "data": DATA, "version": VERSION, "os": platform.system(),
+        return {"adb": self.adb, "data": self.data.root, "version": VERSION, "os": platform.system(),
                 "images": [f for f in sorted(os.listdir(os.path.join(BASE, "images"))) if f.startswith("dev-")]}
 
     def latest_version(self):
@@ -335,12 +423,10 @@ class Api:
         return {}
 
     def _run(self, script, *args, timeout=180):
-        r = subprocess.run(cmd_for(script, *args), capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", env=child_env(self.adb), timeout=timeout, creationflags=NOWIN)
-        return r.stdout, r.stderr, r.returncode
+        return self.runner.run(script, *args, timeout=timeout)
 
     def _adb(self, *args, timeout=20):
-        return adb_link.invoke(self.adb, *args, timeout=timeout)
+        return _tool("adb_link").invoke(self.adb, *args, timeout=timeout)
 
     # ----- 下载 adb -----
     def download_adb(self):
@@ -371,7 +457,8 @@ class Api:
             raise ValueError("文件校验不对，可能下载不完整或被改动")
 
     def _download(self):
-        zp = os.path.join(DATA, "platform-tools.zip")
+        self.data.ensure()
+        zp = self.data.adb_zip
         errors = []
         try:
             for label, url, digest in self.adb_sources():
@@ -383,9 +470,9 @@ class Api:
             else:
                 raise RuntimeError("；".join(errors))
             with zipfile.ZipFile(zp) as z:
-                z.extractall(DATA)
+                z.extractall(self.data.root)
             os.remove(zp)
-            adb = os.path.join(DATA, "platform-tools", "adb.exe" if IS_WIN else "adb")
+            adb = os.path.join(self.data.platform_tools, "adb.exe" if IS_WIN else "adb")
             if not IS_WIN:
                 os.chmod(adb, 0o755)
             self.adb = adb
@@ -454,7 +541,7 @@ class Api:
         for line in out.splitlines():
             parts = line.split("\t")
             if len(parts) >= 3:
-                if protected_channel(parts[2], parts[1]):
+                if _tool("channel_policy").protected_channel(parts[2], parts[1]):
                     continue  # 旧扫描结果也不能经「全选」把功能通知勾回去
                 rows.append({"pkg": parts[0], "id": parts[1], "name": parts[2],
                              "app": parts[3].strip() if len(parts) > 3 else "",   # 手机上显示的应用名，读不到为空
@@ -467,7 +554,7 @@ class Api:
             if private:
                 detail = detail.replace(private, replacement).replace(private.replace("\\", "\\\\"), replacement)
         self.last_error = {"operation": operation, "detail": detail}
-        folder = os.path.join(DATA, "logs")
+        folder = self.data.logs
         try:
             os.makedirs(folder, exist_ok=True)
             Path(folder, "last-error.txt").write_text(f"客户端 {VERSION} · {operation}\n{detail}\n", encoding="utf-8")
@@ -477,7 +564,8 @@ class Api:
         causes = [line.strip() for line in lines if re.search(r"(?:Exception|Error|Caused by:|原始异常：|启动失败)", line)
                   and not line.lstrip().startswith("at ")]
         summary = "\n".join(causes[:4]) or (detail if len(detail) <= 600 else detail[:600] + "…")
-        recovery = UI_RECOVERY if is_ui_connection_error(detail) else ""
+        help_ui = _tool("troubleshooting")
+        recovery = help_ui.UI_RECOVERY if help_ui.is_ui_connection_error(detail) else ""
         if recovery:
             summary = recovery + "\n\n" + summary
         if len(summary) > 1000:
@@ -508,17 +596,18 @@ class Api:
                 return {"error": "已有任务在运行"}
             tasks = []
             if plan.get("backup", True):
-                tasks.append(("存改动前的快照", "run.py", ["-s", serial, "backup"]))
+                tasks.append(Task("存改动前的快照", "run.py", ["-s", serial, "backup"]))
             if plan.get("steps"):
-                tasks.append(("关闭各 App 里的广告开关", "run.py",
-                              ["-s", serial, "recipe", *plan["steps"], *(["--ref"] if plan.get("ref") else [])]))
+                tasks.append(Task("关闭各 App 里的广告开关", "run.py",
+                                  ["-s", serial, "recipe", *plan["steps"], *(["--ref"] if plan.get("ref") else [])],
+                                  uses_ui=True))
             if plan.get("channels"):
-                tasks.append(("关闭营销通知", "@channels", plan["channels"]))
+                tasks.append(Task("关闭营销通知", "chan_fast.py", uses_ui=True, channels=plan["channels"]))
             if plan.get("quickapp"):
-                tasks.append(("关闭快应用", "run.py", ["-s", serial, "quickapp", "off"]))
+                tasks.append(Task("关闭快应用", "run.py", ["-s", serial, "quickapp", "off"]))
             if plan.get("ads"):
-                tasks.append(("挂起广告组件", "run.py", ["-s", serial, "suspend", *plan["ads"]]))
-            tasks.append(("收尾", "run.py", ["-s", serial, "finish"]))
+                tasks.append(Task("挂起广告组件", "run.py", ["-s", serial, "suspend", *plan["ads"]]))
+            tasks.append(Task("收尾", "run.py", ["-s", serial, "finish"]))
             self.job = {"running": True, "lines": [], "idx": 0, "total": len(tasks), "title": "",
                         "results": [], "proc": None, "cancel": False, "t0": time.time(), "serial": serial,
                         "model": plan.get("model", "")}
@@ -526,87 +615,97 @@ class Api:
         return {"ok": True, "total": len(tasks)}
 
     def _log(self, s):
+        """记一行输出。事件行只改状态、不进日志，返回 None；人话返回存下来的文本。"""
         s = s.rstrip("\n")
-        if s.startswith("⏸ 已暂停"):
+        events = _tool("events")
+        if events.is_event(s):
+            self._event(events.parse(s))
+            return None
+        self.job["lines"].append(s)
+        return s
+
+    def _event(self, kind):
+        """引擎事件（ADR-0004）：暂停 / 继续 / 锁屏改提示状态，其余记进本步骤的事件集合；
+        都不进日志、不上报。"""
+        if kind is None:                # 前缀对上但解析不出来：当没有这个事件
+            return
+        if kind == "paused":
             self.job["paused"] = True
             chime()                     # 可以拿手机了
-        elif "手机锁屏了：请解锁手机" in s:
-            chime()                     # 要机主来解锁
-        elif s.startswith("▶ 继续执行"):
+        elif kind == "resumed":
             self.job["paused"] = False
-        self.job["lines"].append(s)
-
-    def _latest_backup(self, model):
-        try:
-            hits = sorted(d for d in os.listdir(BACKUPS) if d.startswith(model + "-"))
-            return os.path.join(BACKUPS, hits[-1]) if hits else None
-        except FileNotFoundError:
-            return None
+        elif kind == "locked":
+            chime()                     # 要机主来解锁
+        else:
+            self.job.setdefault("step_events", set()).add(kind)
 
     def _work(self, tasks):
         j = self.job
         ui_busy = False
         self.resume()                   # 上次没清掉的暂停标记不能带进这次
-        for i, (title, script, args) in enumerate(tasks):
+        for i, task in enumerate(tasks):
+            j["step_events"] = set()
             if j.get("pause") and not j["cancel"]:
                 # 步骤之间的暂停；步骤里面的暂停由引擎在段与段、渠道与渠道之间处理
+                j["paused"] = True
+                chime()                 # 可以拿手机了：与引擎侧暂停点的提醒一致
                 self._log("⏸ 已暂停：现在可以操作手机。操作完回到桌面、保持解锁，再点「继续」")
                 while j.get("pause") and not j["cancel"]:
                     time.sleep(0.5)
+                j["paused"] = False
                 if not j["cancel"]:
                     self._log("▶ 继续执行")
-            if j["cancel"] and title != "收尾":
+            if j["cancel"] and task.title != "收尾":
                 continue                # 停止后仍跑收尾：改回插电常亮（以前停止会让手机一直亮着）
-            j["idx"], j["title"] = i + 1, title
-            self._log(f"\n▶ {title}")
-            needs_ui = script == "@channels" or (script == "run.py" and len(args) > 2 and args[2] == "recipe")
-            if ui_busy and needs_ui:
+            j["idx"], j["title"] = i + 1, task.title
+            self._log(f"\n▶ {task.title}")
+            if ui_busy and task.uses_ui:
                 reason = "读屏服务仍被占用，跳过本步骤；请先解决读屏连接再重试。"
                 self._log(reason)
-                j["results"].append({"title": title, "rc": 3, "skipped": True, "sec": 0, "tail": [reason]})
+                j["results"].append({"title": task.title, "rc": 3, "skipped": True, "sec": 0, "tail": [reason]})
                 continue
             line_start = len(j["lines"])
             t = time.time()
-            if script == "@channels":
-                d = self._latest_backup(j["model"]) or os.path.join(BACKUPS, f"{j['model']}-gui")
-                os.makedirs(d, exist_ok=True)
+            script, args = task.script, list(task.args)
+            if task.channels is not None:
+                d = self.backups.latest(j["model"]) or self.backups.gui(j["model"])
                 fn = os.path.join(d, "channels.tsv")
                 with open(fn, "w", encoding="utf-8") as f:
                     f.write("# 包名\t渠道id\t渠道名\t应用名（客户端勾选）\n")
-                    for c in args:
-                        app = re.sub(r"[\t\r\n]+", " ", str(c.get("app") or "")).strip()
-                        f.write(f"{c['pkg']}\t{c['id']}\t{c['name']}\t{app}\n")
-                script, args = "chan_fast.py", ["-s", j["serial"], "off", fn]
+                    for c in task.channels:
+                        name = re.sub(r"[\t\r\n]+", " ", str(c.get("app") or "")).strip()
+                        f.write(f"{c['pkg']}\t{c['id']}\t{c['name']}\t{name}\n")
+                args = ["-s", j["serial"], "off", fn]
             try:
-                env = dict(child_env(self.adb), AAC_PAUSE_FILE=pause_file())
-                p = subprocess.Popen(cmd_for(script, *args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     text=True, encoding="utf-8", errors="replace", env=env,
-                                     creationflags=NOWIN, bufsize=1)
+                p = self.runner.spawn(script, *args, env_extra={"AAC_PAUSE_FILE": self.data.pause,
+                                                                "AAC_EVENTS": "1"})
                 j["proc"] = p
                 tail = []
                 for line in p.stdout:
-                    self._log(line); tail.append(line.strip()); tail = tail[-80:]
+                    shown = self._log(line)     # 事件行返回 None：不进步骤摘要（前端会展示 tail）
+                    if shown is not None:
+                        tail.append(shown.strip()); tail = tail[-80:]
                 rc = p.wait()
             except Exception as e:
                 rc, tail = -1, [str(e)]
                 self._log(f"✗ {e}")
-            if rc and j["cancel"] and title != "收尾":
+            if rc and j["cancel"] and task.title != "收尾":
                 # 用户点了停止：不是出错，不记诊断、不提示上报（错误日志 10-28：4 份是停止后上报的）
-                j["results"].append({"title": title, "rc": rc, "stopped": True, "sec": round(time.time() - t), "tail": tail})
+                j["results"].append({"title": task.title, "rc": rc, "stopped": True, "sec": round(time.time() - t), "tail": tail})
                 continue
-            j["results"].append({"title": title, "rc": rc, "sec": round(time.time() - t), "tail": tail})
+            j["results"].append({"title": task.title, "rc": rc, "sec": round(time.time() - t), "tail": tail})
             if rc:
                 detail = "\n".join(j["lines"][line_start:])
-                ui_busy = ui_busy or any(m in detail for m in ("UIAUTOMATION_BUSY", "DeviceBusyError", "正在使用这台手机的读屏服务"))
-                if "adb 连接断开了" in detail and not adb_present(self.adb, j["serial"]):
+                ui_busy = ui_busy or "ui_busy" in j["step_events"]
+                if "link_lost" in j["step_events"] and not adb_present(self.adb, j["serial"]):
                     # 手机已断开：后面每一步都会报同一段排查说明（错误日志 10-27），不再执行
-                    self._remember_error(title, j["serial"], detail)
+                    self._remember_error(task.title, j["serial"], detail)
                     reason = "手机和电脑已断开，这一步没有执行。重新连接手机后点「重试」。"
-                    for later, _, _ in tasks[i + 1:]:
-                        self._log(f"\n▶ {later}\n{reason}")
-                        j["results"].append({"title": later, "rc": 3, "skipped": True, "sec": 0, "tail": [reason]})
+                    for later in tasks[i + 1:]:
+                        self._log(f"\n▶ {later.title}\n{reason}")
+                        j["results"].append({"title": later.title, "rc": 3, "skipped": True, "sec": 0, "tail": [reason]})
                     break
-                error = self._remember_error(title, j["serial"], detail)
+                error = self._remember_error(task.title, j["serial"], detail)
                 if error.get("recovery"):
                     j["recovery"] = error["recovery"]
         self.resume()
@@ -640,8 +739,8 @@ class Api:
         j = self.job
         if not j or not j["running"] or j["cancel"]:
             return False
-        os.makedirs(DATA, exist_ok=True)
-        Path(pause_file()).write_text("", encoding="utf-8")
+        self.data.ensure()
+        Path(self.data.pause).write_text("", encoding="utf-8")
         j["pause"] = True
         return True
 
@@ -649,7 +748,7 @@ class Api:
         if self.job:
             self.job["pause"] = False
         try:
-            os.remove(pause_file())
+            os.remove(self.data.pause)
         except OSError:
             pass
         return True
@@ -666,7 +765,7 @@ class Api:
             out, err, rc = self._run("run.py", "-s", serial, "quickapp", "on")
         elif what == "channels":
             st = self.status(serial)
-            d = self._latest_backup(st.get("info", {}).get("model", ""))
+            d = self.backups.latest(st.get("info", {}).get("model", ""))
             fn = d and os.path.join(d, "channels.tsv")
             if not fn or not os.path.exists(fn):
                 return "没有找到上次关掉的营销通知清单"
@@ -751,7 +850,7 @@ class Api:
 
     def _install_id(self):
         """第一次上报时随机生成，只用来限频；不取任何设备或电脑标识。"""
-        path = Path(DATA, "install-id")
+        path = Path(self.data.install_id)
         try:
             value = path.read_text(encoding="utf-8").strip()
             if uuid.UUID(value).version == 4:
@@ -759,6 +858,7 @@ class Api:
         except (OSError, ValueError):
             pass
         value = str(uuid.uuid4())
+        self.data.ensure()
         path.write_text(value, encoding="utf-8")
         return value
 
@@ -807,7 +907,7 @@ class Api:
             return False
 
     def open_path(self, which):
-        path = {"data": DATA, "backups": BACKUPS}.get(which, DATA)
+        path = {"data": self.data.root, "backups": self.data.backups}.get(which, self.data.root)
         os.makedirs(path, exist_ok=True)
         if IS_WIN:
             os.startfile(path)
@@ -845,7 +945,7 @@ def smoke_gui(window, result):
                 from webview import http
                 if http.global_server is not None:
                     raise RuntimeError("不应启动本地 HTTP 服务")
-                simulated = {"sec": 0, "cancel": False, "recovery": UI_RECOVERY,
+                simulated = {"sec": 0, "cancel": False, "recovery": _tool("troubleshooting").UI_RECOVERY,
                              "results": [{"rc": 1, "title": "读屏检查（模拟）", "sec": 0,
                                           "tail": ["UIAUTOMATION_BUSY: simulated"]}]}
                 window.evaluate_js("showDone(" + json.dumps(simulated, ensure_ascii=False) + ")")
@@ -872,7 +972,7 @@ def main():
     if len(sys.argv) > 2 and sys.argv[1] == "--cli":
         cli_main(); return
     import webview
-    api = Api()
+    api = client_api()
     smoke = "--smoke-gui" in sys.argv
     if smoke:
         _fix_stdio()

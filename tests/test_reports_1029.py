@@ -3,7 +3,6 @@ import os
 os.environ.setdefault("AAC_NO_SOUND", "1")     # 客户端提示音：测试里不出声
 import contextlib
 import hashlib
-import importlib.util
 import io
 from pathlib import Path
 import sys
@@ -12,6 +11,9 @@ import types
 import unittest
 from unittest.mock import Mock, patch
 import xml.etree.ElementTree as ET
+
+from gui import app
+from gui.bundle_data import bundle_data
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tool"))
@@ -165,9 +167,7 @@ class NotificationTests(unittest.TestCase):
 class GuiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        spec = importlib.util.spec_from_file_location("aac_gui_1029", ROOT / "gui/app.py")
-        cls.app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(cls.app)
+        cls.app = app
 
     def test_adb_falls_back_to_mirror_and_checks_the_file(self):
         # #273：从 Google 下载 adb 失败
@@ -178,8 +178,8 @@ class GuiTests(unittest.TestCase):
             headers = {"Content-Length": str(len(body))}
             def __enter__(self): return self
             def __exit__(self, *a): return False
-        with tempfile.TemporaryDirectory() as d, patch.object(self.app, "DATA", d):
-            api = self.app.Api()
+        with tempfile.TemporaryDirectory() as d:
+            api = self.app.Api(str(Path(d, "fresh")))
             sources = [("Google 官网", "https://g/x.zip", digest), ("腾讯云镜像", "https://t/x.zip", digest)]
             urls = []
 
@@ -194,7 +194,7 @@ class GuiTests(unittest.TestCase):
                 api._download()
             self.assertEqual(urls, ["https://g/x.zip", "https://t/x.zip"])
             self.assertIn("not a zip", api.dl["msg"])           # 校验过了，走到解压
-            self.assertFalse(Path(d, "platform-tools.zip").exists())
+            self.assertFalse(Path(d, "fresh", "platform-tools.zip").exists())
             with patch.object(api, "adb_sources", return_value=[("腾讯云镜像", "https://t/x.zip", "0" * 64)]), \
                  patch.object(self.app.urllib.request, "urlopen", return_value=Reply(body)):
                 api._download()
@@ -207,17 +207,16 @@ class GuiTests(unittest.TestCase):
             self.assertRegex(digest, r"^[0-9a-f]{64}$")
 
     def test_chime_moments(self):
-        with tempfile.TemporaryDirectory() as d, patch.object(self.app, "DATA", d), \
-             patch.object(self.app, "chime") as chime:
-            api = self.app.Api()
+        with tempfile.TemporaryDirectory() as d, patch.object(self.app, "chime") as chime:
+            api = self.app.Api(d)
             api.job = {"running": True, "cancel": False, "lines": [], "results": [], "serial": "t", "t0": 0}
-            api._log("  ! 手机锁屏了：请解锁手机并保持亮屏，解锁后自动继续（最多等 90 秒）")
-            api._log("⏸ 已暂停：现在可以操作手机。")
+            api._log('#aac:event {"kind": "locked"}')
+            api._log('#aac:event {"kind": "paused"}')
             api._log("  关  营销通知")
             self.assertEqual(chime.call_count, 2)
             done = Mock(stdout=io.StringIO("")); done.wait.return_value = 0
             with patch.object(self.app.subprocess, "Popen", return_value=done):
-                api._work([("收尾", "run.py", ["-s", "t", "finish"])])
+                api._work([self.app.Task("收尾", "run.py", ["-s", "t", "finish"])])
             self.assertEqual(chime.call_count, 3)
 
     def test_chime_plays_once_for_close_events_and_never_in_tests(self):
@@ -242,10 +241,7 @@ class GuiTests(unittest.TestCase):
         peak = max(abs(int.from_bytes(frames[i:i + 2], "little", signed=True)) for i in range(0, len(frames), 2)) / 32767
         self.assertLess(seconds, 1.0)
         self.assertTrue(0.15 < peak < 0.4)                    # 不刺耳，也不至于听不见
-        spec = importlib.util.spec_from_file_location("bundle_1029", ROOT / "gui/bundle_data.py")
-        bundle = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(bundle)
-        self.assertIn(str(ROOT / "gui/web/chime.wav"), [src for src, _ in bundle.bundle_data(ROOT)])
+        self.assertIn(str(ROOT / "gui/web/chime.wav"), [src for src, _ in bundle_data(ROOT)])
 
 
 

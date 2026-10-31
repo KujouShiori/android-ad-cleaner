@@ -3,7 +3,6 @@
 import os
 os.environ.setdefault("AAC_NO_SOUND", "1")     # 客户端提示音：测试里不出声
 import contextlib
-import importlib.util
 import io
 import json
 from pathlib import Path
@@ -13,6 +12,9 @@ import types
 import unittest
 from unittest.mock import Mock, patch
 import xml.etree.ElementTree as ET
+
+from gui import app
+from gui.bundle_data import bundle_data
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tool"))
@@ -329,62 +331,60 @@ class AppLabelTests(unittest.TestCase):
             self.assertEqual(chan.load(str(f)), [("com.taobao.taobao", "promo", "活动优惠")])
 
     def test_dex_is_shipped_with_the_tools(self):
-        spec = importlib.util.spec_from_file_location("bundle_data_026", ROOT / "gui/bundle_data.py")
-        bundle = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(bundle)
-        self.assertIn(str(ROOT / "tool/applabels.dex"), [src for src, _ in bundle.bundle_data(ROOT)])
+        self.assertIn(str(ROOT / "tool/applabels.dex"), [src for src, _ in bundle_data(ROOT)])
         self.assertTrue((ROOT / "tool/applabels/Labels.java").exists())
 
 
 class GuiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        spec = importlib.util.spec_from_file_location("aac_gui_026", ROOT / "gui/app.py")
-        cls.app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(cls.app)
+        cls.app = app
 
     def api(self, directory):
-        api = self.app.Api()
+        api = self.app.Api(directory)
         api.job = {"running": True, "cancel": False, "lines": [], "results": [], "serial": "test", "t0": 0, "model": "M"}
         return api
 
     def test_stop_is_not_a_failure_and_finish_still_runs(self):
         # 4 份报告是用户点了停止后上报的；停止以前也让插电常亮一直开着
-        with tempfile.TemporaryDirectory() as directory, patch.object(self.app, "DATA", directory):
+        with tempfile.TemporaryDirectory() as directory:
             api = self.api(directory)
             stopped = Mock(stdout=io.StringIO("正在连接手机读屏服务……\n"))
             stopped.wait.side_effect = lambda: (api.job.__setitem__("cancel", True), -15)[1]
             finish = Mock(stdout=io.StringIO("插电常亮已改回 0\n")); finish.wait.return_value = 0
             with patch.object(self.app.subprocess, "Popen", side_effect=[stopped, finish]) as popen:
-                api._work([("关闭营销通知", "run.py", ["-s", "test", "x"]), ("关闭快应用", "run.py", ["-s", "test", "quickapp", "off"]),
-                           ("收尾", "run.py", ["-s", "test", "finish"])])
+                api._work([self.app.Task("关闭营销通知", "run.py", ["-s", "test", "x"]),
+                           self.app.Task("关闭快应用", "run.py", ["-s", "test", "quickapp", "off"]),
+                           self.app.Task("收尾", "run.py", ["-s", "test", "finish"])])
             self.assertEqual(popen.call_count, 2)
             self.assertEqual([(r["title"], r.get("stopped", False)) for r in api.job["results"]], [("关闭营销通知", True), ("收尾", False)])
             self.assertIsNone(api.last_error)
             self.assertEqual([s["result"] for s in api.report_payload()["steps"]], ["已停止", "成功"])
 
     def test_empty_report_is_not_sent(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(self.app, "DATA", directory):
-            api = self.app.Api()
+        with tempfile.TemporaryDirectory() as directory:
+            api = self.app.Api(directory)
             with patch.object(self.app.urllib.request, "urlopen") as urlopen:
                 self.assertEqual(api.send_report({"steps": [], "log": "  "}), {"error": self.app.EMPTY_REPORT})
             urlopen.assert_not_called()
 
     def test_channel_list_file_keeps_app_names_for_people(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(self.app, "DATA", directory), \
-             patch.object(self.app, "BACKUPS", directory):
+        with tempfile.TemporaryDirectory() as directory:
             api = self.api(directory)
             done = Mock(stdout=io.StringIO("")); done.wait.return_value = 0
             with patch.object(self.app.subprocess, "Popen", return_value=done):
-                api._work([("关闭营销通知", "@channels", [{"pkg": "com.taobao.taobao", "id": "promo", "name": "活动优惠", "app": "淘\t宝"}])])
-            text = Path(directory, "M-gui", "channels.tsv").read_text(encoding="utf-8")
+                api._work([self.app.Task("关闭营销通知", "chan_fast.py", uses_ui=True,
+                                         channels=[{"pkg": "com.taobao.taobao", "id": "promo", "name": "活动优惠", "app": "淘\t宝"}])])
+            text = Path(directory, "backups", "M-gui", "channels.tsv").read_text(encoding="utf-8")
             self.assertIn("com.taobao.taobao\tpromo\t活动优惠\t淘 宝\n", text)
 
     def test_new_version_notice(self):
         class Reply(io.BytesIO):
             def __enter__(self): return self
             def __exit__(self, *a): return False
-        api = self.app.Api()
+        data = tempfile.TemporaryDirectory()
+        self.addCleanup(data.cleanup)
+        api = self.app.Api(data.name)
         with patch.object(self.app.urllib.request, "urlopen", return_value=Reply(json.dumps({"version": "9.9.9"}).encode())):
             self.assertEqual(api.latest_version(), {"version": "9.9.9", "url": self.app.DOWNLOAD_PAGE})
         with patch.object(self.app.urllib.request, "urlopen", return_value=Reply(json.dumps({"version": self.app.VERSION}).encode())):
@@ -435,20 +435,17 @@ class PauseTests(unittest.TestCase):
         self.assertIs(phone.pause_at_lock_check, False)
 
     def test_gui_pause_resume_and_stop(self):
-        spec = importlib.util.spec_from_file_location("aac_gui_pause", ROOT / "gui/app.py")
-        app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(app)
-        with tempfile.TemporaryDirectory() as directory, patch.object(app, "DATA", directory):
-            api = app.Api()
+        with tempfile.TemporaryDirectory() as directory:
+            api = app.Api(directory)
             self.assertFalse(api.pause())                                # 没在执行
             api.job = {"running": True, "cancel": False, "lines": [], "results": [], "serial": "t", "t0": 0,
                        "idx": 1, "total": 2, "title": "x"}
             self.assertTrue(api.pause())
             self.assertTrue(Path(directory, "pause").exists())
-            api._log("⏸ 已暂停：现在可以操作手机")
+            api._log('#aac:event {"kind": "paused"}')
             state = api.poll()
             self.assertEqual((state["pause"], state["paused"]), (True, True))
-            api._log("▶ 继续执行")
+            api._log('#aac:event {"kind": "resumed"}')
             api.resume()
             self.assertFalse(Path(directory, "pause").exists())
             self.assertEqual((api.poll()["pause"], api.poll()["paused"]), (False, False))
@@ -457,11 +454,8 @@ class PauseTests(unittest.TestCase):
             self.assertFalse(Path(directory, "pause").exists())
 
     def test_gui_waits_between_steps_and_passes_the_flag_to_engines(self):
-        spec = importlib.util.spec_from_file_location("aac_gui_pause2", ROOT / "gui/app.py")
-        app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(app)
-        with tempfile.TemporaryDirectory() as directory, patch.object(app, "DATA", directory):
-            api = app.Api()
+        with tempfile.TemporaryDirectory() as directory:
+            api = app.Api(directory)
             api.job = {"running": True, "cancel": False, "lines": [], "results": [], "serial": "t", "t0": 0}
             envs = []
 
@@ -474,7 +468,8 @@ class PauseTests(unittest.TestCase):
                 done = Mock(stdout=io.StringIO("")); done.wait.return_value = 0
                 return done
             with patch.object(app.subprocess, "Popen", side_effect=proc):
-                api._work([("存改动前的快照", "run.py", ["-s", "t", "backup"]), ("收尾", "run.py", ["-s", "t", "finish"])])
+                api._work([app.Task("存改动前的快照", "run.py", ["-s", "t", "backup"]),
+                           app.Task("收尾", "run.py", ["-s", "t", "finish"])])
             self.assertEqual(envs, [str(Path(directory, "pause"))] * 2)
             log = "\n".join(api.job["lines"])
             self.assertLess(log.index("⏸ 已暂停"), log.index("▶ 收尾"))

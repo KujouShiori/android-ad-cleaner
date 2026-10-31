@@ -12,13 +12,13 @@
   python3 tool/run.py -s 序列号 suspend 包名 …       挂起广告包（先征得机主同意），记录到 backups/.../suspended.txt
   python3 tool/run.py -s 序列号 unsuspend [包名 …]   解除挂起（不给包名=解除记录里的全部）
   python3 tool/run.py -s 序列号 quickapp          只读：检测快应用组件（装没装、挂没挂、在不在跑、用没用过）
-  python3 tool/run.py -s 序列号 quickapp off      关闭快应用：挂起全部快应用组件（先征得机主同意）
+  python3 tool/run.py -s 序列号 quickapp off      关闭快应用：挂起快应用组件（快递等系统服务依赖的框架自动保留；先征得机主同意）
   python3 tool/run.py -s 序列号 quickapp on       恢复快应用
   python3 tool/run.py -s 序列号 finish             收尾：插电常亮改回备份时的值，提醒关闭开发者模式
   python3 tool/run.py -s 序列号 dev-off --yes      从电脑上关闭开发者模式和 USB 调试（执行后电脑与手机断开）
   python3 tool/run.py -s 序列号 status-json        只读：一次输出全部状态（JSON，给图形界面用）
 """
-import datetime, glob, json, os, re, subprocess, sys, time
+import glob, json, os, re, subprocess, sys, time
 from pathlib import Path
 for _st in (sys.stdout, sys.stderr):
     try:
@@ -27,20 +27,20 @@ for _st in (sys.stdout, sys.stderr):
         pass
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adb_link
+import events
 import troubleshooting
+from backups import Backups, root_from_env
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOOL = os.path.join(ROOT, "tool")
-BACKUPS = os.environ.get("AAC_BACKUPS") or os.path.join(ROOT, "backups")
+BACKUPS = root_from_env() or os.path.join(ROOT, "backups")
 
 # 各品牌常见的系统广告包（快应用另列在 QUICKAPP）。只在机主同意后挂起；挂起可一条命令还原。
+# 键是品牌族（见 FAMILY），不是 ro.product.brand 原值：POCO 归 xiaomi、一加 / realme 归 oppo、iQOO 归 vivo。
 AD_PKGS = {
-    "OPPO": ["com.opos.ads", "com.heytap.pictorial"],
-    "OnePlus": ["com.opos.ads", "com.heytap.pictorial"],
-    "realme": ["com.opos.ads", "com.heytap.pictorial"],
-    "HONOR": [],
-    "Xiaomi": ["com.miui.systemAdSolution"],
-    "Redmi": ["com.miui.systemAdSolution"],
+    "oppo": ["com.opos.ads", "com.heytap.pictorial"],
+    "honor": [],
+    "xiaomi": ["com.miui.systemAdSolution"],
     "vivo": [],
 }
 
@@ -61,6 +61,13 @@ QUICKAPP = [
 # 挂了会坏功能的包，不许挂
 NEVER = {"com.heytap.quicksearchbox", "com.coloros.assistantscreen", "com.android.systemui",
          "com.vivo.systemuiplugin", "com.heytap.market", "com.xiaomi.market", "com.hihonor.appmarket"}
+
+# 快应用里挂起会误伤系统功能的组件，quickapp off 不挂。PMX110 / ColorOS 17 逐个单独挂起实测
+# （2026-10-30，Issue #335）：只剩 platform 挂起时，负一屏快递卡片能显示缓存，点「全部」打不开详情页，
+# 弹「快应用服务框架目前无法使用。该应用是由Shell所管理。」；另两个单独或同时挂起，快递详情页都正常。
+QUICKAPP_KEEP = {
+    "com.nearme.instant.platform": "快应用平台主框架，负一屏快递助手等系统卡片依赖它，挂起后详情页打不开",
+}
 
 
 def adb_bin():
@@ -137,6 +144,12 @@ def info(serial):
 
 FAMILY = {"oppo": "oppo", "oneplus": "oppo", "realme": "oppo", "honor": "honor",
           "xiaomi": "xiaomi", "redmi": "xiaomi", "poco": "xiaomi", "vivo": "vivo", "iqoo": "vivo"}
+
+
+def ad_packages(brand):
+    return AD_PKGS.get(FAMILY.get((brand or "").lower(), ""), [])
+
+
 # 没有本型号脚本时用的同品牌参考脚本。以前取目录名排第一的那份，社区每加一个机型，
 # 别的手机用的参考脚本就可能跟着变（10-28 合并社区机型脚本时发现）；固定成维护者实测最全的一份。
 REFERENCE = {"oppo": "oppo-PLP120", "honor": "honor-PNM-AN10", "xiaomi": "xiaomi-M154FF", "vivo": "vivo-V2547DA"}
@@ -197,6 +210,7 @@ def wait_unlocked(serial, timeout=90):
     if not locked(serial):
         return True
     print(f"  ! 手机锁屏了：请解锁手机并保持亮屏，解锁后自动继续（最多等 {timeout} 秒）", flush=True)
+    events.emit("locked")
     t = time.time()
     while time.time() - t < timeout:
         time.sleep(1)
@@ -208,19 +222,18 @@ def wait_unlocked(serial, timeout=90):
 
 def latest_backup(serial, create=False):
     m = info(serial)["model"]
-    hits = sorted(glob.glob(os.path.join(BACKUPS, f"{m}-*")))
-    if hits and not create:
-        return hits[-1]
-    d = os.path.join(BACKUPS, f"{m}-{datetime.datetime.now():%Y%m%d-%H%M}")
-    os.makedirs(d, exist_ok=True)
-    return d
+    backups = Backups(BACKUPS)
+    latest = backups.latest(m)
+    if latest and not create:
+        return latest
+    return backups.create(m)
 
 
 def display_backup_path(path):
     """Windows 程序和备份可能位于不同盘符，此时不能计算相对路径。"""
     path = os.fspath(path)
     home = os.path.expanduser("~")
-    if os.environ.get("AAC_BACKUPS"):
+    if root_from_env():
         return "~" + path[len(home):] if path.startswith(home + os.sep) else path
     try:
         return os.path.relpath(path, ROOT)
@@ -312,6 +325,7 @@ def quickapps(serial):
         is_suspended = suspended(serial, pkg)
         out.append({
             "pkg": pkg, "name": name, "brand": brand, "tested": tested,
+            "keep": pkg in QUICKAPP_KEEP,
             "suspended": is_suspended,
             "closed": is_suspended or switch == "0" or pkg in disabled,   # 以前手动 disable-user 的也算关闭
             "method": "setting" if switch is not None else "suspend",
@@ -403,7 +417,7 @@ def main():
             print(f"机型脚本：{os.path.relpath(r, ROOT)}；录制版本 {rb or '未标'}，{'版本一致' if ok else '版本不同：用安全模式跑，部分步骤可能找不到入口'}")
         else:
             print("机型脚本：没有。可跑：通知渠道 chan-scan/chan-off、广告包挂起；其余照 docs/清单 手动做，或用 tool/explore.py 探路")
-        for p in AD_PKGS.get(i["brand"], []):
+        for p in ad_packages(i["brand"]):
             exists = "package:" in sh(s, f"pm path {p}")
             print(f"  广告包 {p}：{'未安装' if not exists else ('已挂起' if suspended(s, p) else '未挂起')}")
         for q in quickapps(s):
@@ -526,23 +540,34 @@ def main():
         if sub == "check":
             print(f"检测到 {len(qs)} 个快应用组件：")
             for q in qs:
+                if q["keep"]:
+                    note = "  （保留：%s）" % QUICKAPP_KEEP[q["pkg"]]
+                elif q["method"] == "setting":
+                    note = "  （系统服务开关）"
+                else:
+                    note = "" if q["tested"] else "  （这个包的挂起效果还没实测）"
                 print(f"  {q['name']:<10} {q['pkg']:<34} {'已关闭' if q['closed'] else '未关闭'}  "
                       f"{'后台在跑' if q['running'] else '没在跑'}  "
                       f"{'近期打开过 %d 次' % q['used'] if q['used'] else '近期没打开过'}"
-                      f"{'  （系统服务开关）' if q['method'] == 'setting' else ('' if q['tested'] else '  （这个包的挂起效果还没实测）')}")
+                      f"{note}")
             h = sh(s, "pm query-activities --brief -a android.intent.action.VIEW -d hap://app/x")
             who = re.findall(r"^\s*(\S+/\S+)$", h, re.M)
-            if all(q["closed"] for q in qs):
-                print("快应用组件已关闭；系统可能显示「应用无法使用」或「快应用服务已关闭」。恢复：quickapp on")
-            else:
+            if [q for q in qs if not q["closed"] and not q["keep"]]:
                 if who:
                     print(f"hap:// 链接由 {who[0]} 接管：网页或 App 里的广告可以用这类链接跳进快应用。")
                 print("关闭：python3 tool/run.py -s %s quickapp off（要机主同意，可还原）" % s)
+            else:
+                print("可挂起的快应用组件已关闭（保留项除外）；恢复：quickapp on")
+                if who:
+                    # 保留平台就等于留着 hap:// 入口，不能写成广告已拦下
+                    print(f"hap:// 链接仍由 {who[0]} 接管（保留项）：广告仍可能跳进快应用。")
         elif sub == "off":
-            todo = [q["pkg"] for q in qs if not q["closed"] and q["method"] == "suspend"]
+            todo = [q["pkg"] for q in qs if not q["closed"] and q["method"] == "suspend" and not q["keep"]]
             why = {}
             for q in qs:
-                if q["method"] == "setting":
+                if q["keep"]:
+                    print(f"  保留 {q['name']}（{q['pkg']}）：{QUICKAPP_KEEP[q['pkg']]}")
+                elif q["method"] == "setting":
                     try:
                         print(set_quickapp_service(s))
                     except (RuntimeError, OSError, ValueError) as e:
@@ -553,15 +578,21 @@ def main():
                     sh(s, f"am force-stop --user 0 {p}")
             done = [p for p in todo if suspended(s, p)]
             record(s, done)
+            after = quickapps(s)
             bad = []
-            for q in quickapps(s):
+            for q in after:
+                if q["keep"]:
+                    print(f"  {q['name']:<10} {q['pkg']:<34} 保留（不挂起）")
+                    continue
                 ok = q["closed"]
                 reason = "" if ok else "（" + ((why.get(q["pkg"]) or "").splitlines() or ["系统没给原因"])[-1][:160] + "）"
                 print(f"  {q['name']:<10} {q['pkg']:<34} {'已关闭' if ok else '关闭失败' + reason}")
                 if not ok:
                     bad.append(q)
             if not bad:
-                print("快应用组件已关闭。请按常用入口核对效果；恢复：quickapp on")
+                print("快应用组件已关闭（保留项除外）。请按常用入口核对效果；恢复：quickapp on")
+                if any(q["keep"] and not q["closed"] for q in after):
+                    print("保留项仍接管 hap:// 链接：广告仍可能跳进快应用。")
             else:
                 # Issue #7：vivo 的快应用挂起被系统拒绝。如实报失败，不说「已关闭」
                 print(f"有 {len(bad)} 个快应用组件关闭失败。可以在手机上检查快应用服务开关，或仅关掉它的通知："
@@ -605,14 +636,15 @@ def main():
             meta = recipe_meta(r)
             steps, rb = meta["steps"], meta["build"]
             ok = (not ref) and build_ok(i, rb)
-        ads = [{"pkg": p, "suspended": suspended(s, p)} for p in AD_PKGS.get(i["brand"], []) if installed(s, p)]
+        ads = [{"pkg": p, "suspended": suspended(s, p)} for p in ad_packages(i["brand"]) if installed(s, p)]
+        backup = Backups(BACKUPS).latest(i["model"])
         print(json.dumps({
             "info": i, "locked": locked(s),
             "recipe": os.path.relpath(r, ROOT) if r else None, "recipe_ref": ref, "recipe_build": rb, "recipe_ok": ok, "steps": steps,
             "ads": ads, "quickapps": quickapps(s),
             "stay_on": sh(s, "settings get global stay_on_while_plugged_in"),
             "dev": sh(s, "settings get global development_settings_enabled") == "1",
-            "backup": os.path.relpath(latest_backup(s), BACKUPS) if glob.glob(os.path.join(BACKUPS, f"{i['model']}-*")) else None,
+            "backup": os.path.relpath(backup, BACKUPS) if backup else None,
             "fold_open": fold_open(s),
             "input_blocked": input_blocked(s, i["brand"]),
         }, ensure_ascii=False))

@@ -13,9 +13,19 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 
+## 票的生命周期
+
+- **关票判据**：实现合入 main 就关，不等发版、不等真机（需要真机复测的修复是例外，见 `docs/09` 与 `waiting-for-verify`）。票里没做的 Follow-up 不拖着这张票：转进对应的跟踪票（例：候选项进 #334），并在关闭说明里写清转到哪里。
+- **票即 spec**：开票时把 grilling 定下的**全部**交付物写进「方案」段——代码、文档、ADR、术语——Spec 审查只认票面。漏写会让审查把已批准的东西报成 scope creep。
+
 ## Pull requests as a triage surface
 
-**PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_
+**PRs as a request surface: yes.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_
+
+外部 PR 和 issue 走同一套状态，但**处置方式按类型分**：
+
+- **机型/清单类**（只碰 `recipes/`、`docs/清单/`、`tests/`、`CHANGELOG.md`、README 机型表）：CI 过 + 三查即可合并。三查：用 `p.off()` 不自己点开关、`tap_confirm()` 先确认出现带「取消」的确认框、CHANGELOG / README 机型表 / 清单三处齐。
+- **核心行为类**（碰 `tool/`、`gui/`、`AGENTS.md`、架构）：采纳分析，按本仓库的模型重新实现，不整单合并。口径见 [docs/09](../09-社区问题处理.md) 的「相关 PR 的采用范围」。
 
 When set to `yes`, PRs run through the same labels and states as issues, using the `gh pr` equivalents:
 

@@ -1,6 +1,5 @@
 """社区反馈回归：不用手机，模拟页面与系统回读，不以 UI 状态代替执行结果。"""
 import contextlib
-import importlib.util
 import io
 import json
 import ntpath
@@ -16,6 +15,8 @@ from unittest.mock import Mock, patch
 import xml.etree.ElementTree as ET
 
 from PIL import Image
+
+from gui import app
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tool"))
@@ -91,6 +92,20 @@ class ScreenshotTests(unittest.TestCase):
 
 @patch.object(chan.time, "sleep")
 class ChannelTests(unittest.TestCase):
+    def scan(self, *channels):
+        """喂一份 dumpsys 渠道行，跑一次完整的 scan；假设备，不连手机。"""
+        rows = "".join(
+            f"        NotificationChannel{{mId='{cid}', mName={name}, mDescription=null, mImportance=2, mDeleted=false}}\n"
+            for cid, name in channels)
+        result = types.SimpleNamespace(returncode=0, stderr="",
+                                       stdout="PackagePreferences:\n      AppSettings: com.example importance=DEFAULT\n" + rows)
+        with patch.object(subprocess, "run", return_value=result), \
+             patch.object(chan, "app_labels", return_value={}), \
+             patch.object(sys, "argv", ["chan_fast.py", "-s", "test", "scan"]), \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            chan.main()
+        return out.getvalue()
+
     def test_bom_and_crlf_do_not_drop_first_channel(self, _sleep):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory, "channels.tsv")
@@ -184,6 +199,36 @@ class ChannelTests(unittest.TestCase):
              contextlib.redirect_stdout(io.StringIO()) as out:
             chan.main()
         self.assertEqual(out.getvalue(), "com.zongheng.reader\tflhd\t福利活动\n")
+
+    def test_vivo_marketing_category_is_listed_despite_operation_message_name(self, _sleep):
+        # #337：vivo 营销分类 VPushChannel_0 的渠道名就叫「运营消息」，以前被 SKIP 的单字「消息」剔掉
+        self.assertEqual(self.scan(("VPushChannel_0", "运营消息")), "com.example\tVPushChannel_0\t运营消息\n")
+
+    def test_vivo_service_categories_stay_out_of_scan(self, _sleep):
+        # 同一台 V1986A：VPushChannel_1/2 是系统 / 即时消息，属服务通知，必须继续跳过（#337）
+        self.assertEqual(self.scan(("VPushChannel_0", "运营消息"), ("VPushChannel_1", "系统消息"),
+                                   ("VPushChannel_2", "即时消息")),
+                         "com.example\tVPushChannel_0\t运营消息\n")
+
+    def test_vivo_marketing_categories_4_and_6_are_listed(self, _sleep):
+        # AGENTS.md §5 点名 0/4/6 三个分类号；只认 0 的正则会让这条红（#337）
+        self.assertEqual(self.scan(("VPushChannel_4", "运营消息"), ("VPushChannel_6", "运营消息")),
+                         "com.example\tVPushChannel_4\t运营消息\n"
+                         "com.example\tVPushChannel_6\t运营消息\n")
+
+    def test_vivo_marketing_id_still_needs_marketing_keywords(self, _sleep):
+        # 分类号只越过 SKIP，不越过营销关键词：否则 VPushChannel_0 下的服务类渠道
+        # 会进客户端清单并被默认勾选（gui/app.py 的 SERVICE 不含「消息」）（#337）
+        self.assertEqual(self.scan(("VPushChannel_0", "订单物流")), "")
+
+    def test_photo_spot_protection_outranks_vendor_marketing_id(self, _sleep):
+        # 名字带「推荐」会命中营销关键词、分类号也命中，找机位仍必须最高优先（#337）
+        self.assertEqual(self.scan(("VPushChannel_0", "找机位推荐")), "")
+
+    def test_operation_message_name_outside_vivo_marketing_ids_is_unchanged(self, _sleep):
+        # 名字含「消息」的其他渠道行为不变：非 vivo ID、vivo 的其他分类号、近似前缀都不放行（#337）
+        self.assertEqual(self.scan(("promo", "运营消息"), ("VPushChannel_7", "运营消息"),
+                                   ("VPushChannel_0x", "运营消息")), "")
 
     def test_notification_dump_failure_is_not_empty_success(self, _sleep):
         p = channel_phone()
@@ -391,7 +436,7 @@ class QuickappTests(unittest.TestCase):
 
     def test_force_stop_follows_successful_suspend(self):
         events = []
-        initial = {"pkg": "com.example.quick", "name": "测试快应用", "closed": False, "method": "suspend"}
+        initial = {"pkg": "com.example.quick", "name": "测试快应用", "keep": False, "closed": False, "method": "suspend"}
         closed = dict(initial, closed=True)
         with patch.object(run, "quickapps", side_effect=[[initial], [closed]]), \
              patch.object(run, "suspended", return_value=True), patch.object(run, "record"), \
@@ -598,11 +643,76 @@ class PackageListTests(unittest.TestCase):
         self.assertFalse(entries[0]["closed"])
 
 
+class QuickappKeepTests(unittest.TestCase):
+    """Issue #335：快应用平台承载负一屏快递详情页，quickapp off 必须保留它。"""
+    PKGS = ("com.nearme.instant.platform", "com.oppo.instant.local.service", "com.nearme.instant.card")
+    HAP = "com.nearme.instant.platform/.dispatch.activity.HapDispatcherActivity"
+
+    def phone(self, hap=HAP):
+        state = {"suspended": set()}
+
+        def shell(_s, cmd):
+            if cmd.startswith("pm query-activities"):
+                return f"  {hap}\n" if hap else ""
+            return ""
+
+        def suspend(_s, cmd):
+            if cmd.startswith("pm suspend --user 0 "):
+                state["suspended"].add(cmd.rsplit(" ", 1)[-1])
+            return ""
+
+        return state, shell, suspend
+
+    def run_quickapp(self, state, shell, suspend, *argv):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(run, "installed", side_effect=lambda _s, p: p in self.PKGS), \
+             patch.object(run, "pkg_list", return_value=""), \
+             patch.object(run, "quickapp_switch", return_value=None), \
+             patch.object(run, "suspended", side_effect=lambda _s, p: p in state["suspended"]), \
+             patch.object(run, "sh", side_effect=shell), \
+             patch.object(run, "sh_all", side_effect=suspend), \
+             patch.object(run, "latest_backup", return_value=directory), \
+             patch.object(sys, "argv", ["run.py", "-s", "test", "quickapp", *argv]), \
+             contextlib.redirect_stdout(out := io.StringIO()):
+            run.main()
+        return out.getvalue()
+
+    def test_off_suspends_the_two_ad_components_but_keeps_the_platform(self):
+        state, shell, suspend = self.phone()
+        text = self.run_quickapp(state, shell, suspend, "off")
+        self.assertEqual(state["suspended"], {"com.oppo.instant.local.service", "com.nearme.instant.card"})
+        self.assertIn("保留 快应用平台", text)
+        self.assertIn("广告仍可能跳进快应用", text)
+
+    def test_check_labels_the_kept_component(self):
+        state, shell, suspend = self.phone()
+        state["suspended"].update({"com.oppo.instant.local.service", "com.nearme.instant.card"})
+        text = self.run_quickapp(state, shell, suspend)
+        self.assertIn("（保留：", text)
+        self.assertIn("可挂起的快应用组件已关闭（保留项除外）", text)
+        self.assertIn(f"hap:// 链接仍由 {self.HAP} 接管（保留项）", text)
+
+    def test_check_still_asks_to_close_when_a_switchable_component_is_open(self):
+        state, shell, suspend = self.phone()
+        text = self.run_quickapp(state, shell, suspend)
+        self.assertIn("关闭：python3 tool/run.py", text)
+
+    def test_quickapps_flags_only_the_kept_package(self):
+        state, shell, suspend = self.phone()
+        with patch.object(run, "installed", side_effect=lambda _s, p: p in self.PKGS), \
+             patch.object(run, "pkg_list", return_value=""), \
+             patch.object(run, "quickapp_switch", return_value=None), \
+             patch.object(run, "suspended", return_value=False), \
+             patch.object(run, "sh", side_effect=shell):
+            entries = run.quickapps("test-device")
+        self.assertEqual({e["pkg"]: e["keep"] for e in entries},
+                         {"com.nearme.instant.platform": True,
+                          "com.oppo.instant.local.service": False,
+                          "com.nearme.instant.card": False})
+
+
 class DesktopTests(unittest.TestCase):
     def test_gui_smoke_output_works_with_non_utf8_console(self):
-        spec = importlib.util.spec_from_file_location("aac_gui_test", ROOT / "gui/app.py")
-        app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(app)
         buffer = io.BytesIO()
         stream = io.TextIOWrapper(buffer, encoding="ascii", newline="\n")
         with patch.object(sys, "stdout", stream), patch.object(sys, "stderr", stream):
@@ -612,21 +722,17 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(buffer.getvalue().decode("utf-8"), "GUI smoke: 页面通过\n")
 
     def test_failed_scan_reaches_gui_as_error(self):
-        spec = importlib.util.spec_from_file_location("aac_gui_test", ROOT / "gui/app.py")
-        app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(app)
-        api = app.Api()
-        api._run = Mock(return_value=("", "读取失败", 1))
-        with tempfile.TemporaryDirectory() as directory, patch.object(app, "DATA", directory):
+        with tempfile.TemporaryDirectory() as directory:
+            api = app.Api(directory)
+            api._run = Mock(return_value=("", "读取失败", 1))
             self.assertEqual(api.chan_scan("test"), {"error": "读取失败", "detail": "读取失败"})
 
     def test_gui_loads_file_uri_without_http_server(self):
-        spec = importlib.util.spec_from_file_location("aac_gui_test", ROOT / "gui/app.py")
-        app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(app)
         fake = types.SimpleNamespace(create_window=Mock(), start=Mock())
-        with patch.dict(sys.modules, {"webview": fake}), patch.object(app, "IS_WIN", True), \
-             patch.object(sys, "argv", ["app.py"]):
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.dict(sys.modules, {"webview": fake}), patch.object(app, "IS_WIN", True), \
+             patch.object(app, "data_dir", return_value=directory), \
+             patch.object(app, "find_adb", return_value=None), patch.object(sys, "argv", ["app.py"]):
             app.main()
         url = fake.create_window.call_args.args[1]
         self.assertTrue(url.startswith("file:///"))
@@ -688,6 +794,67 @@ class RepeatedChannelNameTests(unittest.TestCase):
                                  ' bounds="[900,1000][1000,1080]"/>')
         self.assertEqual(chan.inline_switch(self.phone(page), "营销通知", chan.Attempt()),
                          ("营销通知", True, (950, 980)))
+
+
+class AdPackagesTests(unittest.TestCase):
+    """#367：AD_PKGS 以 ro.product.brand 原值取键，POCO 取不到小米家族的广告包。
+    客户端「挂起广告组件」读的是 status-json 的 ads，所以 check 与 status-json 两个入口都守。"""
+
+    INFO = {"brand": "", "model": "M2012K11AC", "name": "POCO F3", "build": "OS1.0.1.0", "os": "", "android": "13"}
+
+    @staticmethod
+    def shell(_s, cmd):
+        """假 adb：只回答广告包装没装，其余命令回空。"""
+        return "package:/product/app/AdServices/base.apk" if cmd == "pm path com.miui.systemAdSolution" else ""
+
+    def check_output(self, brand):
+        out = io.StringIO()
+        with patch.object(run, "info", return_value=dict(self.INFO, brand=brand)), \
+             patch.object(run, "recipe_for", return_value=(None, False)), \
+             patch.object(run, "locked", return_value=False), \
+             patch.object(run, "input_blocked", return_value=False), \
+             patch.object(run, "suspended", return_value=False), \
+             patch.object(run, "quickapps", return_value=[]), \
+             patch.object(run, "sh", side_effect=self.shell), \
+             patch.object(sys, "argv", ["run.py", "-s", "test", "check"]), \
+             contextlib.redirect_stdout(out):
+            run.main()
+        return out.getvalue()
+
+    def status_json(self, brand):
+        out = io.StringIO()
+        with patch.object(run, "info", return_value=dict(self.INFO, brand=brand)), \
+             patch.object(run, "recipe_for", return_value=(None, False)), \
+             patch.object(run, "locked", return_value=False), \
+             patch.object(run, "suspended", return_value=False), \
+             patch.object(run, "quickapps", return_value=[]), \
+             patch.object(run, "fold_open", return_value=False), \
+             patch.object(run, "input_blocked", return_value=False), \
+             patch.object(run, "sh", side_effect=self.shell), \
+             patch.object(run, "Backups", return_value=Mock(latest=Mock(return_value=None))), \
+             patch.object(sys, "argv", ["run.py", "-s", "test", "status-json"]), \
+             contextlib.redirect_stdout(out):
+            run.main()
+        return json.loads(out.getvalue())
+
+    def test_check_lists_xiaomi_ad_package_for_poco_brand(self):
+        self.assertIn("广告包 com.miui.systemAdSolution：未挂起", self.check_output("POCO"))
+
+    def test_status_json_lists_xiaomi_ad_package_for_poco_brand(self):
+        self.assertEqual(self.status_json("POCO")["ads"],
+                         [{"pkg": "com.miui.systemAdSolution", "suspended": False}])
+
+    def test_iqoo_brand_stays_empty_in_both_entries(self):
+        self.assertNotIn("com.miui.systemAdSolution", self.check_output("iQOO"))
+        self.assertEqual(self.status_json("iQOO")["ads"], [])
+
+    def test_existing_brands_resolve_to_the_same_packages(self):
+        self.assertEqual({b: run.ad_packages(b) for b in
+                          ("Xiaomi", "Redmi", "OPPO", "OnePlus", "realme", "HONOR", "vivo")},
+                         {"Xiaomi": ["com.miui.systemAdSolution"], "Redmi": ["com.miui.systemAdSolution"],
+                          "OPPO": ["com.opos.ads", "com.heytap.pictorial"],
+                          "OnePlus": ["com.opos.ads", "com.heytap.pictorial"],
+                          "realme": ["com.opos.ads", "com.heytap.pictorial"], "HONOR": [], "vivo": []})
 
 
 if __name__ == "__main__":

@@ -22,6 +22,8 @@ import uiautomator2 as u2
 from ui_session import connect
 from troubleshooting import UI_RECOVERY, XIAOMI_INPUT, accessibility_summary, input_blocked
 import adb_link
+import backups
+import events
 import wait
 from reader import Reader
 from row import SWITCH_ROW_DEPTH, bounds, own, title_of
@@ -48,9 +50,11 @@ def pause_point():
     if not path or not os.path.exists(path):
         return False
     print("⏸ 已暂停：现在可以操作手机。操作完回到桌面、保持解锁，再点「继续」", flush=True)
+    events.emit("paused")
     while os.path.exists(path):
         time.sleep(0.5)
     print("▶ 继续执行", flush=True)
+    events.emit("resumed")
     return True
 
 
@@ -94,6 +98,7 @@ class Phone:
         try:
             self.reader = reader if reader is not None else connect(serial)
         except u2.exceptions.AccessibilityServiceAlreadyRegisteredError as e:
+            events.emit("ui_busy")
             raise RuntimeError("UIAUTOMATION_BUSY：手机读屏服务已被占用，本次未点击开关。"
                                "已清理本次失败的启动并重试一次，仍无法连接。"
                                "请退出旧版客户端，只保留一个客户端。\n"
@@ -298,6 +303,7 @@ class Phone:
         if not self.locked():
             return True
         print(f"  ! 手机锁屏了：请解锁手机并保持亮屏，解锁后自动继续（最多等 {timeout} 秒）", flush=True)
+        events.emit("locked")
         t = time.time()
         while time.time() - t < timeout:
             time.sleep(1)
@@ -924,7 +930,7 @@ def execute(p, cmd, rest):
             sys.exit(1)
         print(f"\n机型脚本跑完：关了 {len(p.changed)} 个，{time.time()-t:.0f} 秒")
         import datetime
-        logdir = os.environ.get("AAC_BACKUPS") or os.path.dirname(os.path.abspath(rest[0]))
+        logdir = backups.root_from_env() or os.path.dirname(os.path.abspath(rest[0]))
         try:
             os.makedirs(logdir, exist_ok=True)
             with open(os.path.join(logdir, "run-log.txt"), "a", encoding="utf-8") as f:
