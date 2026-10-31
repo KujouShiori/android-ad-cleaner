@@ -47,6 +47,7 @@ class Redmi24094RAD4CRecipeTests(unittest.TestCase):
 
     def test_plain_tap_fallback_confirms_and_verifies_only_named_switches(self):
         p = Mock()
+        p.changed = []
         p.switches.side_effect = [
             [("资源推荐", True, (1, 2)), ("热榜推荐", True, (3, 4)), ("仅在WLAN下加载", False, (5, 6))],
             [("资源推荐", True, (1, 2)), ("热榜推荐", True, (3, 4))],
@@ -59,6 +60,23 @@ class Redmi24094RAD4CRecipeTests(unittest.TestCase):
         scope["close_with_plain_tap"](["资源推荐", "热榜推荐"], "下载管理·信息流")
         self.assertEqual(p.d.shell.call_count, 2)
         self.assertEqual(p.confirm.call_count, 2)
+        self.assertEqual(p.changed, [("下载管理·信息流", "资源推荐"),
+                                     ("下载管理·信息流", "热榜推荐")])
+
+    def test_plain_tap_fallback_records_only_switches_it_turned_off(self):
+        p = Mock()
+        p.changed = []
+        p.switches.side_effect = [
+            [("资源推荐", False, (1, 2)), ("热榜推荐", True, (3, 4))],
+            [("热榜推荐", True, (3, 4))],
+            [("资源推荐", False, (1, 2)), ("热榜推荐", False, (3, 4))],
+        ]
+        scope = {"p": p, "ONLY": ["__no_steps__"]}
+        with contextlib.redirect_stdout(io.StringIO()):
+            exec(compile(self.source, str(self.path), "exec"), scope)
+        scope["close_with_plain_tap"](["资源推荐", "热榜推荐"], "浏览器·隐私和安全")
+        self.assertEqual(p.d.shell.call_count, 1)
+        self.assertEqual(p.changed, [("浏览器·隐私和安全", "热榜推荐")])
 
     def test_plain_tap_fallback_aborts_when_target_missing(self):
         p = Mock()

@@ -111,7 +111,11 @@ def close_with_plain_tap(names, page):
         raise RuntimeError(f"{page}：回读未确认关闭")
     if any(after.get(title) != state for title, state in before.items() if title not in targets):
         raise RuntimeError(f"{page}：其他开关状态变化，请核对")
-    print(f"  · {page}：核对 {len(targets)} 项，调整 {sum(before[title] for title in targets)} 项")
+    turned = [title for title in targets if before[title] and after.get(title) is False]
+    for title in turned:
+        print(f"  关 {title}")
+        p.changed.append((page, title))
+    print(f"  · {page}：核对 {len(targets)} 项，调整 {len(turned)} 项")
 
 
 @step("系统广告")
