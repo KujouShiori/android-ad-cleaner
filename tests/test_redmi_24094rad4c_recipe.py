@@ -51,7 +51,7 @@ class Redmi24094RAD4CRecipeTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             exec(compile(self.source, str(self.path), "exec"), scope)
         scope["tap_bottom_tab"] = Mock(side_effect=[False, False, True])
-        scope["time"].sleep = Mock()
+        scope["time"] = Mock()  # 换掉 recipe 自己的 time 绑定；改全局 time.sleep 会漏到后面的用例
         self.assertTrue(scope["wait_bottom_tab"]("我的"))
         self.assertEqual(scope["tap_bottom_tab"].call_count, 3)
         self.assertEqual(p.dismiss.call_count, 3)
