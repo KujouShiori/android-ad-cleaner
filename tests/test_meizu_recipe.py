@@ -22,6 +22,7 @@ class MeizuRecipeTests(unittest.TestCase):
         p.W, p.H = 1000, 2000
         p.focus.return_value = "app/Settings"
         p.locked.return_value = False
+        p.safe_mode = False
         p.tree.return_value = ET.Element("hierarchy")
         p.texts.return_value = []
         return p
@@ -47,6 +48,35 @@ class MeizuRecipeTests(unittest.TestCase):
         self.assertEqual(scope["FAILED_STEPS"], ["全局搜索"])
         p.click.assert_not_called()
         self.assertEqual(p.d.shell.call_count, 2)
+
+    def test_safe_mode_runs_the_step_instead_of_aborting_on_model_mismatch(self):
+        # 别的魅族机型借这份脚本走安全模式；型号硬校验若照旧生效，8 段会全部空转（#379）
+        p = self.phone()
+        p.safe_mode = True
+        p.d.shell.return_value = Mock(output="MEIZU 22")
+        scope = self.load(p, ["探针"])
+        ran = []
+
+        @scope["step"]("探针")
+        def probe():
+            ran.append(1)
+
+        self.assertEqual(ran, [1])
+        self.assertEqual(scope["FAILED_STEPS"], [])
+        self.assertFalse(p.d.shell.called)
+
+    def test_unsafe_mode_still_aborts_on_model_mismatch(self):
+        p = self.phone()
+        p.d.shell.return_value = Mock(output="MEIZU 22")
+        scope = self.load(p, ["探针"])
+        ran = []
+
+        @scope["step"]("探针")
+        def probe():
+            ran.append(1)
+
+        self.assertEqual(ran, [])
+        self.assertEqual(scope["FAILED_STEPS"], ["探针"])
 
     def test_entry_under_navigation_bar_is_scrolled_before_click(self):
         p = self.phone()
