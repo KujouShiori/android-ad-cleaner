@@ -334,8 +334,8 @@ class BottomBarWaitTests(unittest.TestCase):
 class ScanWordingTests(unittest.TestCase):
     def test_overlay_notice_is_not_a_marketing_candidate(self):
         # #115：小米「“钱包”正在其他应用的上层显示内容」被当成营销渠道，整步报失败
-        self.assertTrue(chan.SKIP.search("“钱包”正在其他应用的上层显示内容"))
-        self.assertFalse(chan.SKIP.search("内容资讯"))
+        self.assertTrue(chan.classify("“钱包”正在其他应用的上层显示内容").scan_excluded)
+        self.assertFalse(chan.classify("内容资讯").scan_excluded)
 
     def test_off_names_channels_still_on(self):
         items = [("com.example", "promo", "营销推广")]

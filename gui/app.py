@@ -378,10 +378,6 @@ def scrub(text, serial=None):
     return text
 
 
-# 营销渠道里混进来的服务类渠道：默认不勾
-SERVICE = re.compile(r"TETHERING|热点|ENVELOPE|红包|Auto lock|盗窃|hotspot|drive_mode|驾驶|securitypermission|权限建议|直播|ig_live|youtube\t2\t|警告|告警|实时活动|赛事|护眼|清理加速|普通通知|推送通知|个性化提示|\t其他$", re.I)
-
-
 class Api:
     def __init__(self, data_dir, adb=None, runner=None):
         self.data = ClientData(data_dir)
@@ -537,15 +533,18 @@ class Api:
             return self._remember_error("通知扫描", serial, str(e))
         if rc:
             return self._remember_error("通知扫描", serial, err or out or "通知扫描失败，请检查连接与权限")
+        policy = _tool("channel_policy")
         rows = []
         for line in out.splitlines():
             parts = line.split("\t")
             if len(parts) >= 3:
-                if _tool("channel_policy").protected_channel(parts[2], parts[1]):
+                pkg, cid, name = parts[0], parts[1], parts[2]
+                app = parts[3].strip() if len(parts) > 3 else ""   # 手机上显示的应用名，读不到为空
+                judgement = policy.classify(name, cid, package=pkg, app=app)
+                if judgement.protected:
                     continue  # 旧扫描结果也不能经「全选」把功能通知勾回去
-                rows.append({"pkg": parts[0], "id": parts[1], "name": parts[2],
-                             "app": parts[3].strip() if len(parts) > 3 else "",   # 手机上显示的应用名，读不到为空
-                             "checked": not SERVICE.search(line)})
+                rows.append({"pkg": pkg, "id": cid, "name": name, "app": app,
+                             "checked": not judgement.default_unchecked})
         return rows
 
     def _remember_error(self, operation, serial, detail):
