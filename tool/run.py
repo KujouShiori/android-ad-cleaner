@@ -27,6 +27,7 @@ for _st in (sys.stdout, sys.stderr):
         pass
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adb_link
+import events
 import troubleshooting
 from backups import Backups, root_from_env
 
@@ -209,6 +210,7 @@ def wait_unlocked(serial, timeout=90):
     if not locked(serial):
         return True
     print(f"  ! 手机锁屏了：请解锁手机并保持亮屏，解锁后自动继续（最多等 {timeout} 秒）", flush=True)
+    events.emit("locked")
     t = time.time()
     while time.time() - t < timeout:
         time.sleep(1)

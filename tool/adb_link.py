@@ -7,6 +7,8 @@ import re
 import shutil
 import subprocess
 
+import events
+
 # adb 客户端自己的错误（远端命令的 stderr 不会带这些前缀）。
 # Windows 上程序名有时显示成「adb.」（错误日志 10-27）。
 CLIENT_GONE = re.compile(r"(?mi)^(?:adb[\w.]*|error): .*(?:not found|offline|no devices|unauthorized|authorizing"
@@ -77,7 +79,11 @@ def wait_for(serial, adb=None, timeout=15):
 
 
 class DeviceLost(RuntimeError):
-    pass
+    """已确认断线；构造即发 link_lost（ADR-0004）。谁把它转成退出码都不影响事件。"""
+
+    def __init__(self, message):
+        super().__init__(message)
+        events.emit("link_lost")
 
 
 def present(serial, adb=None):
