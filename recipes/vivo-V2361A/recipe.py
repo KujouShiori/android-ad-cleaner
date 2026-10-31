@@ -28,10 +28,7 @@ def step(name):
 
 def maybe(name, scrolls=6):
     """有就点，没有不算「走丢」，后面的步骤照常找。"""
-    p.miss = 0
-    ok = p.tap(name, exact=True, scrolls=scrolls)
-    p.miss = 0
-    return ok
+    return p.entry(name, scrolls=scrolls)
 
 
 def settings_home():

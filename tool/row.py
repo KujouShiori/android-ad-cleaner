@@ -124,3 +124,46 @@ def path(node, parents, depth=PATH_DEPTH):
             break
         node = parents.get(node)
     return out
+
+
+def link(node, parents, depth=PATH_DEPTH):
+    """控件链的显示形式：类名、可点 c / 可滚动 s、子树里的开关数。不含页面文字，适配新系统靠它。"""
+    return "结构 " + " < ".join(
+        f"{(cls or 'node').rsplit('.', 1)[-1]}{':' + flags if flags else ''}#{count}"
+        for cls, flags, count in path(node, parents, depth))
+
+
+def summary(root, screen_w, screen_h):
+    """页面结构摘要（不含页面文字）：顶部标题数、开关数、一条控件链。
+    入口没找到时用它区分「页面还没画完」和「入口确实没了」（#331）。
+    与 Phone.texts() / switches() 同一套过滤：状态栏文字、折叠屏合上后的内屏残留、互斥单选都不算。"""
+    nodes = list(root.iter("node"))
+    parents = {c: n for n in nodes for c in n}
+
+    def shown(n):
+        l, t, r, b = bounds(n)
+        cx, cy = (l + r) // 2, (t + b) // 2
+        return (r > l and b > t and 0 <= cx < screen_w and 0 <= cy < screen_h
+                and n.get("package") != "com.android.systemui")
+
+    def in_list(n):
+        cur = parents.get(n)
+        while cur is not None:
+            if cur.get("scrollable") == "true" or LISTS.search(cur.get("class") or ""):
+                return True
+            cur = parents.get(cur)
+        return False
+
+    def is_switch(n):
+        return n.get("checkable") == "true" and "RadioButton" not in (n.get("class") or "")
+
+    titles = sum(1 for n in nodes if shown(n) and not in_list(n)
+                 and (n.get("text") or n.get("content-desc") or "").strip()
+                 and bounds(n)[1] < screen_h * 0.22)
+    switches = sum(1 for n in nodes if shown(n) and is_switch(n))
+    anchor = next((n for n in nodes if shown(n) and is_switch(n)), None)
+    if anchor is None:
+        anchor = next((n for n in nodes if shown(n)
+                       and (n.get("text") or n.get("content-desc") or "").strip()), None)
+    out = f"标题 {titles} 个，开关 {switches} 个"
+    return out + ("；" + link(anchor, parents) if anchor is not None else "")

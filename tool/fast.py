@@ -26,7 +26,7 @@ import backups
 import events
 import wait
 from reader import Reader
-from row import SWITCH_ROW_DEPTH, bounds, own, title_of
+from row import SWITCH_ROW_DEPTH, bounds, own, summary, title_of
 
 DISMISS = ("以后再说", "暂不更新", "暂不", "取消", "我知道了", "跳过", "禁止", "不再提示", "不同意")
 # 应用内更新弹窗的标题（主题商店 17.22.0beta2 是「检测到新版本」，#286）。它通常把更新说明放进可滚动容器，
@@ -471,10 +471,11 @@ class Phone:
             return None
         return refuse()
 
-    def tap(self, text, exact=False, scrolls=6, wait=0.6):
+    def tap(self, text, exact=False, scrolls=6, wait=0.6, quiet=False):
         """找到就点。往下翻着找；翻到底没有，就回顶部再找一遍。
         scrolls=0（点底栏/按钮）：不翻页，但 6 秒内边等边关弹窗——应用内更新弹窗要等版本检查
-        回来才冒出来，3 秒够不着（#286）。"""
+        回来才冒出来，3 秒够不着（#286）。
+        quiet=True 时不打印「没找到」：入口探测会自己重试并给出诊断，中间的失败不该各报一行。"""
         if scrolls == 0:
             t0 = time.time()
             while time.time() - t0 < 6.0:
@@ -483,7 +484,8 @@ class Phone:
                     b = self.sig(); self.click(*xy); self.settle(b, wait + 0.4)
                     return True
                 self.dismiss() or time.sleep(0.2)
-            self.say(f"  ✗ 没找到「{text}」")
+            if not quiet:
+                self.say(f"  ✗ 没找到「{text}」")
             return False
         if self.miss:                                   # 本段已经走丢：只看当前这一屏
             xy = self.find(text, exact, nav=True)
@@ -492,7 +494,8 @@ class Phone:
                 self.miss = 0
                 return True
             self.miss += 1
-            self.say(f"  ✗ 没找到「{text}」（快速放弃）")
+            if not quiet:
+                self.say(f"  ✗ 没找到「{text}」（快速放弃）")
             return False
         for rnd in range(2 if scrolls else 1):
             for i in range(scrolls + 1):
@@ -512,8 +515,51 @@ class Phone:
             if rnd == 0 and scrolls:
                 self.top(scrolls + 2)
         self.miss += 1
-        self.say(f"  ✗ 没找到「{text}」")
+        if not quiet:
+            self.say(f"  ✗ 没找到「{text}」")
         return False
+
+    def in_settings_page(self):
+        """当前页是某个 App 的设置页（类名含 Setting）。点完齿轮用它确认真的进去了：
+        点击被吞时页面没换，接着在旧页上找入口会整段失败（#331）。"""
+        return "Setting" in self.focus()
+
+    def await_page(self, budget=2.4, poll=0.2, stable=0.15, changed_from=wait.UNSET):
+        """等当前页面站稳：读不到文字、或文字还在变时继续等；预算耗尽就照常往下判定。
+        Android 17 上设置页渲染更慢，点完齿轮 Activity 已换、内容还是空白（#331）。
+        给了 changed_from 就额外要求「换成了别的页」——重试时用它等页面再画一版；
+        不给时只等「这一页画完」，点击被吞、旧页仍在会立刻返回，那种情况要在导航处校验 Activity。"""
+        return wait.until(self.sig, timeout=budget, poll=poll, stable=stable,
+                          changed_from=changed_from, now=time.time, sleep=time.sleep)
+
+    def entry(self, text, scrolls=6, budget=2.4, poll=0.2, tries=2):
+        """可选入口：先等页面站稳再找；找不到返回假，让可选入口不中断整段，并留下
+        Activity 与结构摘要，区分「没加载完」和「入口确实没了」（#331）。
+        一轮没命中不算结论：等页预算摊到几轮，后一轮等「与上一轮不同」的页面，
+        页面在预算内又画完一版就还能找回来；预算耗尽才判失败。
+        真正该中断的错误照常抛：断线、翻页离开了当前设置页。"""
+        seen = wait.UNSET
+        for _ in range(tries):
+            self.miss = 0
+            self.await_page(budget / tries, poll, changed_from=seen)
+            if self.tap(text, exact=True, scrolls=scrolls, quiet=True):
+                self.miss = 0
+                return True
+            self.miss = 0
+            seen = self.sig()
+        self.note_miss(text)
+        return False
+
+    def note_miss(self, text):
+        """入口没找到时留下能定位的页面骨架：停在哪个 Activity、顶部标题与开关数、一条控件链。
+        不打印页面文字，与渠道「未确认」日志同一风格。
+        只吞页面解析失败；断线（DeviceLost）照常冒泡，不能被当成「页面没认出来」。"""
+        where = self.focus() or "未知页面"
+        try:
+            detail = summary(self.tree(), self.W, self.H)
+        except ET.ParseError:
+            detail = "页面结构读不到"
+        self.say(f"  · 「{text}」没找到；停在 {where}；{detail}")
 
     def icon_candidates(self, area=(0.72, 0.0, 1.0, 0.16)):
         """没有文字、点了才知道去哪的图标（右上角齿轮、更多）：按位置从右往左给候选坐标。
