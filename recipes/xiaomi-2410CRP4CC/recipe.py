@@ -29,10 +29,7 @@ def step(name):
 
 def maybe(name, scrolls=6):
     """可选入口：有就点，没有不报「走丢」。"""
-    p.miss = 0
-    ok = p.tap(name, exact=True, scrolls=scrolls)
-    p.miss = 0
-    return ok
+    return p.entry(name, scrolls=scrolls)
 
 
 def tap_any(*names, scrolls=6):

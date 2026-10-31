@@ -17,7 +17,7 @@ for _st in (sys.stdout, sys.stderr):
         pass
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fast import Phone, ScreenLocked, pause_point
-from row import PATH_DEPTH, bounds, own, path
+from row import PATH_DEPTH, bounds, link, own
 from channel_policy import classify, protected_channel
 from troubleshooting import XIAOMI_INPUT
 import adb_link
@@ -379,9 +379,7 @@ def channel_switch(p, name, at):
 
 def chain(node, parents, depth=PATH_DEPTH):
     """从渠道名往上的控件链：类名、可点 c / 可滚动 s、子树里的开关数。不含页面文字，适配新系统靠它。"""
-    return "结构 " + " < ".join(
-        f"{(cls or 'node').rsplit('.', 1)[-1]}{':' + flags if flags else ''}#{count}"
-        for cls, flags, count in path(node, parents, depth))
+    return link(node, parents, depth)
 
 
 def inline_switch(p, name, at):

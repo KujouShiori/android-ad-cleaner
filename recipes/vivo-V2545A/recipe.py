@@ -24,10 +24,7 @@ def step(name):
 
 def maybe(name, scrolls=6):
     """有就点，没有不算走丢。"""
-    p.miss = 0
-    ok = p.tap(name, exact=True, scrolls=scrolls)
-    p.miss = 0
-    return ok
+    return p.entry(name, scrolls=scrolls)
 
 def gear():
     """vivo App 设置多是右上角齿轮，没有文字。"""

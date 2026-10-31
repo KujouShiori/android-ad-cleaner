@@ -102,7 +102,7 @@ def close_named(names, page, max_screens=2):
 
 
 def enter(name, scrolls=6):
-    require(p.tap(name, exact=True, scrolls=scrolls), f"未找到「{name}」")
+    require(p.entry(name, scrolls=scrolls), f"未找到「{name}」")
 
 
 @step("系统广告")
