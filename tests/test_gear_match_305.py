@@ -4,11 +4,14 @@ import io
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tool"))
+sys.path.insert(0, str(ROOT / "tests"))
+
+from fixtures import phone_mock
 
 # 干扰样本来自 #305 与 #374 的真机读数。
 STORE_ROW = ('<node class="android.widget.TextView" text="去功能设置里重新开启"'
@@ -23,9 +26,15 @@ TEXT_ENTRY = ('<node class="android.widget.TextView" text="设置"'
               ' clickable="true" bounds="[100,900][300,980]"/>')
 LOW_GEAR = ('<node class="android.widget.ImageView" content-desc="设置"'
             ' clickable="true" bounds="[950,1500][1040,1590]"/>')
-# 工具栏图标本身不可点、文字正好是「设置」：靠尺寸启发式命中（test_release_regressions 守的是同一类页面）。
+# 工具栏图标本身不可点、文字正好是「设置」：靠尺寸启发式命中（test_release_regressions 守同一类页面）。
 TOOLBAR_TEXT_ICON = ('<node class="android.widget.ImageView" text="设置"'
                      ' clickable="false" bounds="[900,100][1020,220]"/>')
+# 齿轮的 id 形态：iv_setting 要认，securitySettingSwitchLayout 不认（后者是「应用安全检测」入口）。
+ID_GEAR = ('<node class="android.widget.ImageView" resource-id="com.android.market:id/iv_setting"'
+           ' clickable="true" bounds="[950,120][1040,210]"/>')
+ID_SECURITY = ('<node class="android.widget.TextView"'
+               ' resource-id="com.xiaomi.market:id/securitySettingSwitchLayout"'
+               ' clickable="true" bounds="[0,1400][1080,1500]"/>')
 
 GEAR_CENTER = (995, 165)
 
@@ -40,7 +49,7 @@ def hyperos_recipes():
 
 
 def make_phone(nodes):
-    p = Mock(W=1080, H=2400)
+    p = phone_mock(W=1080, H=2400)
     p.tree.return_value = ET.fromstring(f"<hierarchy>{nodes}</hierarchy>")
     p.on_screen.return_value = True
     p.find.return_value = None
@@ -81,6 +90,18 @@ class GearMatcherTests(unittest.TestCase):
                 self.assertFalse(call_gear(path, phone), "把干扰行当成了设置入口")
                 phone.click.assert_not_called()
 
+    def test_security_switch_layout_id_is_not_a_settings_entry(self):
+        for path, phone in self.each(ID_SECURITY):
+            with self.subTest(recipe=self.label(path)):
+                self.assertFalse(call_gear(path, phone), "把 securitySettingSwitchLayout 当成设置入口")
+                phone.click.assert_not_called()
+
+    def test_gear_identified_by_setting_word_in_its_id(self):
+        for path, phone in self.each(ID_GEAR):
+            with self.subTest(recipe=self.label(path)):
+                self.assertTrue(call_gear(path, phone), "没认出 iv_setting 形态的齿轮")
+                self.assertEqual(phone.click.call_args_list[0].args, GEAR_CENTER)
+
     def test_more_menu_still_reaches_the_gear(self):
         for path, phone in self.each(MORE_MENU):
             with self.subTest(recipe=self.label(path)):
@@ -90,11 +111,8 @@ class GearMatcherTests(unittest.TestCase):
     def test_text_settings_entry_still_reachable(self):
         for path, phone in self.each(TEXT_ENTRY):
             with self.subTest(recipe=self.label(path)):
-                phone.find.return_value = (200, 940)
                 self.assertTrue(call_gear(path, phone), "点不到文字「设置」")
-                clicked = [c.args for c in phone.click.call_args_list]
-                self.assertTrue((200, 940) in clicked or phone.tap.called,
-                                "文字「设置」入口没有被触发")
+                self.assertEqual(phone.click.call_args_list[0].args, (200, 940))
 
     def test_toolbar_text_icon_without_clickable_flag_still_opens_settings(self):
         for path, phone in self.each(TOOLBAR_TEXT_ICON):

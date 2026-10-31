@@ -44,10 +44,10 @@ def gear(toolbar_only=False):
         text = (n.get("text") or "").strip().lower()
         if desc in ("设置", "settings", "setting") or text in ("设置", "settings", "setting"):
             return True
-        # id 只认整段收尾就是 setting* 的：商店「我的」页的 securitySettingSwitchLayout
-        # 也含 setting，点进去是「应用安全检测」。
-        return (n.get("resource-id") or "").lower().endswith(
-            ("/settings", "/setting", "/setting_icon", "/setting_layout"))
+        # id 只认最后一段里以 setting 开头的词：商店「我的」页的 securitySettingSwitchLayout
+        # 也含 setting，但 setting 前面粘着 security，不该算成设置入口。
+        rid = (n.get("resource-id") or "").lower().rsplit("/", 1)[-1]
+        return rid.startswith("setting") or "_setting" in rid
 
     for n in p.tree().iter("node"):
         l, t, r, b = bounds(n)
