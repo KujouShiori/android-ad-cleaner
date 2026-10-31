@@ -9,6 +9,7 @@
 - 回归：`python -m unittest discover -s tests`；本机用仓库根的 `.venv/bin/python`（系统 python 缺 adbutils，会报一串 ModuleNotFoundError）。只装 `requirements.txt` 就够，不需要 pywebview / pillow。并行会话在各自的 worktree 里干活时，那个目录没有 `.venv`，用主副本 `.venv/bin/python` 的绝对路径；Read/Edit 也一律用该 worktree 的绝对路径。
 - 本机 `.venv` 是 3.15，CI 是 3.12，而解释器会改写部分输出（3.13 起编译器剥掉文档字符串的公共缩进，异常 repr、argparse 帮助同理）。推送前用 CI 那一版再跑一套：`uv run --python 3.12 --with-requirements requirements.txt python -m unittest discover -s tests`（首次装环境约 30 秒）。
 - 数基线总数用干净副本：`git archive origin/main | tar -x -C /tmp/x` 后在 `/tmp/x` 里跑同一套。主副本里可能躺着别的会话没提交的用例。
+- 改动面与审查对比用分支基点的固定 SHA（`git diff <sha>`），不用 `origin/main`——并行会话会推进它；数基线时先 `git rev-parse origin/main` 记下 SHA 再 archive。
 - 主副本的当前分支随时被别的会话切走（`main` 只是其中一种状态），所以切分支、丢弃改动（`git checkout --`、`restore`、`reset`、`stash`）都在 `git worktree add` 出来的目录里做；主副本只做合并与只读操作。
 - CI：`.github/workflows/test.yml` 在 PR 和 main 推送时自动跑同一套；`build-windows.yml` 只在 `v*` 标签或手动触发时打包，不守 PR。
 - 静态检查：`uvx ruff@0.17.3 check --select F,E9 tool tests gui`，本地与 CI 同一个版本（CI 就钉 0.17.3，`.venv` 里没有 ruff）。不查 `recipes/`——机型脚本靠注入作用域执行，静态分析看到的全是未定义名；也不开格式与行长规则。
@@ -41,7 +42,7 @@
 
 ### Issue tracker
 
-GitHub Issues（`gh` CLI）。见 `docs/agents/issue-tracker.md`。
+GitHub Issues（`gh` CLI）。**开工前先有票**：任何实现 / 重构 / 文档改造先开 issue，分支名带 issue 号。见 `docs/agents/issue-tracker.md`。
 
 ### Triage labels
 
