@@ -43,6 +43,9 @@ BACKUP_DIR = "M154FF-20260101-0000"
 # 它们的转发语义由 tests/test_run_commands.py 的 HandlerInterfaceTests 替身化后断言。
 HOST_SIDE = ("ui-check", "chan-scan", "chan-off", "chan-on")
 
+# 用法说明（`print(__doc__)`）同理不进基线：Python 3.13 起编译器会去掉文档字符串的公共缩进，
+# 3.12 不会，同一份源码在两版解释器下逐字不同。改在进程内与 `run.__doc__` 比。
+
 
 def case(name, argv, rules, seed=None, state=None, expect=(), expect_empty=False):
     """expect 是守卫断言：这些子串必须出现在假 adb 收到的 argv 里，证明这条用例走的是目标分支。
@@ -116,5 +119,4 @@ CASES = [
          expect=["settings put global adb_wifi_enabled 0"]),
     case("dev-off-断线", ["-s", "S", "dev-off", "--yes"], GONE, expect=["wait-for-device"]),
     case("格式错", ["-s", "S"], PHONE, expect_empty=True),
-    case("未知命令", ["-s", "S", "no-such-command"], PHONE, expect_empty=True),
 ]

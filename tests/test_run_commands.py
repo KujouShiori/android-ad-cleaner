@@ -69,10 +69,12 @@ class HandlerInterfaceTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def test_help_and_unknown_command_stay_exit_zero(self):
+        """用法说明与 `__doc__` 逐字相等。这一条不进子进程对拍：Python 3.13 起会去掉
+        文档字符串的公共缩进，3.12 不会，同一份源码跨版本逐字不同。"""
         for argv in ([], ["-h"], ["-s", "S", "no-such-command"]):
             with self.subTest(argv), contextlib.redirect_stdout(out := io.StringIO()):
                 self.assertEqual(run.main(argv), 0)
-            self.assertIn("手机去广告", out.getvalue())
+            self.assertEqual(out.getvalue(), run.__doc__ + "\n")
 
     def test_devices_stays_outside_the_table(self):
         """唯一不带序列号的命令，留在 -s 解析之前，不进 handler 表。"""
