@@ -8,7 +8,7 @@
 | Xiaomi 18 Pro Max（M154FF） | HyperOS OS4.0.24，Android 17 | 2026-10-22 实测；2026-10-25 九段脚本重跑通过 |
 | Xiaomi 18 Fold（2608BPX34C） | CP2A.260605.016，Android 17 | 2026-10-24 社区实测（[Issue #2](https://github.com/rddmwmddr/android-ad-cleaner/issues/2)） |
 | Xiaomi 17 Ultra（2512BPNDAC，标准版） | HyperOS OS4.0.5.0.XPACNXM，Android 17 | 2026-10-28 真机实测；专用脚本九段全通过（176 秒，`recipes/xiaomi-2512BPNDAC`） |
-| Xiaomi 17（25113PN0EC） | HyperOS 4，Android 17 | 2026-11-01 社区实测（[PR #400](https://github.com/rddmwmddr/android-ad-cleaner/pull/400)）；无专用脚本，差异见文末 |
+| Xiaomi 17（25113PN0EC） | HyperOS 4，Android 17 | 2026-11-01 社区实测（[PR #400](https://github.com/rddmwmddr/android-ad-cleaner/pull/400)）；无专用脚本，差异见[文末](#xiaomi-1725113pn0ecos4的差异) |
 | Xiaomi 15（24129PN74C） | HyperOS OS4.0.0.22.XOCCNXM，Android 17 | 2026-10-29 真机实测；专用脚本九段全通过（164 秒，`recipes/xiaomi-24129PN74C/recipe_os4.py`） |
 | Xiaomi Pad 7（2410CRP4CC） | HyperOS OS2.0.208.0.VOZCNXM，Android 15 | 2026-10-28 实测；四段脚本复跑通过，约 61 秒 |
 | REDMI K80 至尊版（25060RK16C） | HyperOS 2（BP2A.250605.031.A3），Android 16 | 2026-10-27 真机实测；专用脚本九段全通过并回读（recipes/redmi-25060RK16C） |
@@ -87,7 +87,7 @@ REDMI K80 至尊版（HyperOS 2 / Android 16）结构差异：「隐私与安全
 - 🔴 通知设置 → 新手帮助
 - 🟢 通知设置 → 应用更新
 - ⚠️ 通知设置里的「推送消息」不要关：它是父开关，关了「点赞消息」「评论消息」一起关。
-- ⚠️ Xiaomi 17（25113PN0EC）这版设置页没有「隐私」入口，个性化服务无从关起，跳过即可，见文末「Xiaomi 17 的差异」。
+- ⚠️ Xiaomi 17（25113PN0EC）没有「隐私」入口，见文末[Xiaomi 17 的差异](#xiaomi-1725113pn0ecos4的差异)。
 
 ## 3. 手机管家
 
@@ -266,14 +266,14 @@ java.lang.SecurityException: Injecting input events requires the caller (or the 
 
 ---
 
-## Xiaomi 17（25113PN0EC，HyperOS 4 / Android 17）的差异
+## Xiaomi 17（25113PN0EC，OS4）的差异
 
-2026-11-01 社区实测（[PR #400](https://github.com/rddmwmddr/android-ad-cleaner/pull/400)），还没有专用脚本，下面是照总清单走会走空或走偏的地方：
+25113PN0EC（HyperOS 4 / Android 17，具体 build 未记录）2026-11-01 社区实测（[PR #400](https://github.com/rddmwmddr/android-ad-cleaner/pull/400)），没有专用脚本，下面是照本清单走会走空或走偏的地方：
 
-- **应用商店**：这台机器的设置页没有「隐私」入口，「个性化服务」无从关起，只能跳过；极简模式、通知设置正常。
-- **主题**：`com.android.thememanager` 没有 LAUNCHER 入口，实际启动的是 `com.miui.themestore`（主题商店），进去后的设置项与总清单一致。
+- **应用商店**：设置页没有「隐私」入口，「个性化服务」无从关起，只能跳过；极简模式、通知设置正常。
+- **主题**：`com.android.thememanager` 没有 LAUNCHER 入口，桌面入口起的是 `com.miui.themestore`（主题商店），进去后的设置项与本清单一致。
 - **手机管家**：monkey 启动失败，改用 `am start` 直达 `com.miui.securitycenter` 的主 Activity。
-- **全局搜索**：热榜管理是**双列布局**，按标题行执行 `fast.py only` / `off` 点不动，要 dump 层级找到 Switch 控件本体坐标逐个点（点标题行无效）。实际榜单 7 项：微博热搜榜、千问热议、微博智搜榜、全网热搜榜、小米好物、音乐热搜榜、知乎热搜榜。桌面下滑在部分机型会拉通知栏，这一页可直达 `com.android.quicksearchbox/.preferences.SearchSettingsPreferenceActivity`。
+- **全局搜索**：热榜管理是**双列布局**，按标题行执行 `fast.py only` / `off` 点不动，要 dump 层级找到 Switch 控件本体坐标逐个点（点标题行无效）。实际榜单 7 项：微博热搜榜、千问热议、微博智搜榜、全网热搜榜、小米好物、音乐热搜榜、知乎热搜榜。这台机器上桌面下滑会拉下通知栏，设置页可直达 `com.android.quicksearchbox/.preferences.SearchSettingsPreferenceActivity`。
 - **负一屏**：没有文字入口，长按也唤不出设置，可直达 `com.miui.personalassistant/.settings.PASettingActivity`；实机的推荐卡片、热门活动、个性化推荐默认全关。
-- **浏览器**：结构与总清单完全一致，小米账号登录框同样会弹，点「取消」。
-- **营销通知**：实机很干净，只有 1 条服务类候选。
+- **浏览器**：结构与本清单完全一致，小米账号登录框同样会弹，点「取消」。
+- **营销通知**：实机扫描出 1 个候选，属服务类渠道，已跳过；没有营销渠道要关。
