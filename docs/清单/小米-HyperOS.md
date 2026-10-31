@@ -19,6 +19,7 @@
 - 🔴 模式切换 → 极简模式（只留搜索、安装、更新）
 - 🔴 通知设置 → 新手帮助
 - 🟢 通知设置 → 应用更新
+- ⚠️ 小米 17（HyperOS 4）此版本设置页没有「隐私」入口，个性化服务无从关起；极简模式和通知设置正常。
 
 ## 3. 手机管家
 
@@ -39,6 +40,7 @@
 
 - 🔴 每次联网时通知
 - 🔴 隐私设置 → 个性化推荐
+- ⚠️ 包名差异：多数机型入口包为 `com.android.thememanager`；小米 17 实机该包无 LAUNCHER 入口，实际启动的是 `com.miui.themestore`（主题商店），设置项一致。
 
 ## 6. 浏览器
 
@@ -58,6 +60,8 @@
 - 🔴 首页展示模块 → 搜索提示词
 - 🔴 应用推荐 → 推荐未安装应用；🟢 展示常用应用
 - 🔴 热搜榜单 → 推荐、微博、资讯、全网、影视、音乐、小说、知乎，全关
+- ⚠️ 小米 17 的热榜管理是**双列布局**，`fast.py only/off` 点不动开关；需 dump 层级找到 Switch 控件本体坐标逐个点击（点标题行无效）。实际榜单 7 项：微博热搜榜、千问热议、微博智搜榜、全网热搜榜、小米好物、音乐热搜榜、知乎热搜榜。
+- ⚠️ 桌面下滑手势在部分机型会拉通知栏，可直达设置页：`am start -n com.android.quicksearchbox/.preferences.SearchSettingsPreferenceActivity`。
 
 ## 8. 负一屏
 
@@ -66,6 +70,7 @@
 - 🔴 推荐卡片、热门活动
 - 🔴 隐私设置 → 个性化推荐
 - 🟢 搜索框、出行助手
+- ⚠️ 小米 17 负一屏无文字入口、长按也唤不出设置，可直达：`am start -n com.miui.personalassistant/.settings.PASettingActivity`（实机推荐卡片、热门活动、个性化推荐默认全关）。
 
 ## 9. 营销通知
 
@@ -94,6 +99,22 @@ adb -s S shell cmd connectivity set-chain3-enabled true
 adb -s S shell pm unsuspend --user 0 com.miui.systemAdSolution
 adb -s S shell cmd connectivity set-package-networking-enabled true com.miui.systemAdSolution
 ```
+
+---
+
+## 不同机型的差异
+
+| 项 | Xiaomi 18 Pro Max（M154FF，HyperOS 4） | 小米 17（25113PN0EC，HyperOS 4，Android 17） |
+|---|---|---|
+| 应用商店「隐私→个性化服务」 | 有 | 无此入口，跳过 |
+| 主题入口包名 | `com.android.thememanager` | 该包无 LAUNCHER 入口，实为 `com.miui.themestore` |
+| 手机管家启动 | 桌面图标 | monkey 启动失败，需 `am start` 直达 `com.miui.securitycenter` 主 Activity |
+| 全局搜索热榜 | 单列，引擎可开关 | 双列布局，需解析 Switch 控件坐标逐个点击 |
+| 负一屏设置入口 | 左边缘右滑后可见 | 无文字入口、长按无效，需 `am start` 直达 `PASettingActivity` |
+| 营销通知渠道 | 正常扫描 | 很干净，仅 1 条服务类候选 |
+| 浏览器 | — | 结构与主清单完全一致，账号登录框同样会弹，点「取消」 |
+
+欢迎补充：提 PR 改这张表。
 
 ---
 
