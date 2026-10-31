@@ -36,6 +36,8 @@
 
 | `check` 首行的 Android 版本为空：HyperOS 4（24129PN74C）上单键 `getprop ro.build.version.release` 返回空，而完整 `getprop` dump 给的是陈旧的 `6.0.1` / SDK `21`，两条通路各缺一半 | [#195](https://github.com/rddmwmddr/android-ad-cleaner/issues/195) | `prop()` 之上加 `android_release()`：按 `ro.build.version.release` → `ro.build.version.release_or_codename` → `ro.system.build.version.release` → `ro.product.build.version.release` → `ro.system_ext.build.version.release` 顺序取第一个非空值。**不退回完整 dump**——这台 dump 里的值是假的，宁可为空也不报错版本。其他机型第一个 key 就命中，行为不变。读数函数本身不编造版本，五个 key 都读不到返回空串，由 `info()` 显示成「未知」——诊断输出留空会被当成没读到。真机验证：这台 `check` 首行从空变成 `Android 17`；`python -m unittest discover -s tests` 575 项全过（基线 `origin/main@e319126` 568 项，新增 7 项，2 项既有 skip 照旧） |
 
+| vivo 旧系统（Funtouch 13 / Android 12）`chan-off` 11 个营销渠道全部跳过：渠道页顶栏是没有 resource-id 的 TextView，渠道行又在应用通知页的「类别」分组下面、首屏读不到 | [#336](https://github.com/rddmwmddr/android-ad-cleaner/issues/336) | `top_title()` 在拿不到 toolbar id 时按几何兜底：顶部 15% 内、几乎横跨整屏的那段文字才算顶栏标题（半屏宽的多半是行内标签，拿它当标题会把应用总开关当成渠道开关）。`via_app_page()` 在 vivo 上只认「类别」以下的同名行，行已读进 dump 但坐标在屏外时主动翻一页，不再只看首屏。认不出照旧跳过、不点页面上的第一个开关；直达深链的取舍不变（这台机器忽略渠道 ID，跳过直达是对的）。新增 13 项设备无关回归（基线 `origin/main@a3df736` 625 项，本分支 638 项，2 项既有 skip 照旧），样本按报告者 2026-10-30 的真机 dump 造；既有页面样本对拍 `python tests/compare_chan_pages.py <改动前的 tool 目录>` 3180 组里 `channel_switch` 零差异，`top_title` 只在一份设置页搜索框样本（720 宽）上由空变为「搜索框」，方向是更保守的跳过。**没有真机复测**：机器在报告者手上，修复要等他复测后才算通过 |
+
 ## 0.2.9 · 2026-10-30
 
 Rikki Lv 的手机连接重构和华为同名渠道行修复（#287）；合并 12 个社区 PR：10 个新机型脚本、1 个华为营销通知命令行工具、同一型号按系统版本选脚本。

@@ -133,6 +133,7 @@ python3 tool/run.py devices
 | 无线调试断开 | 息屏太久 | 请用户关开一次无线调试，报新端口 |
 | ColorOS 14 一加通知渠道全被跳过 | 通知页位于独立的 `com.oplus.notificationmanager` 包 | 当前源码只接受已实测的 Channel / AppNotificationSettingsActivity，仍须核对渠道标题；AppNotification 总页不拨开关 |
 | vivo 渠道直达参数无效 | `systemuiplugin` 页可能只有应用级总开关 | 当前源码直接跳过，不冒关闭整应用通知的风险（PR #20） |
+| vivo 旧系统（Funtouch 13）`chan-off` 全部跳过 | 渠道页顶栏没有固定 resource-id；渠道行在应用通知页「类别」分组下面，首屏读不到 | 当前源码在拿不到 toolbar id 时按几何认顶栏（顶部、几乎整屏宽的那段文字），并在「类别」以下翻页找行；认不出照旧跳过，不点页面上的第一个开关（Issue #336） |
 | 小米 msa 挂起后仍被拉起 | 系统 App 启动时 bind 广告服务 | 当前源码的 `run.py suspend` 挂起时一起尝试断网；安装包状态见 [更新记录](CHANGELOG.md) |
 | 没有本型号的机型脚本 | — | `check` 会列出同品牌参考脚本，`recipe --ref` 用安全模式试跑：只关点名的开关，不做整页全关 |
 | 机型脚本版本对不上 | 系统小版本不同 | 自动进安全模式，同上 |
