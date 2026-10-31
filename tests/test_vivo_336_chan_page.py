@@ -23,13 +23,14 @@ NAME = "优质内容推送"       # 渠道页 dump 里的那一个
 
 
 def phone(pages, w=1080, h=2340):
-    """pages：依次返回的页面，最后一页一直重复。"""
+    """pages：依次返回的页面，最后一页一直重复。每次读屏的文字签名都不同，相当于页面真的翻动了。"""
     p = phone_stub("test", d=Mock())
     p.W, p.H = w, h
     p.locked = Mock(return_value=False)
     p.focus = Mock(return_value=FOCUS)
     p.confirm, p.click = Mock(), Mock()
-    p.sig = Mock(return_value="")
+    pages_seen = iter(range(10 ** 6))
+    p.sig = Mock(side_effect=lambda: str(next(pages_seen)))
     p.settle = Mock(return_value=True)
     p.scroll, p.scroll_more = Mock(), Mock(return_value=False)
     queue = [ET.fromstring(x) for x in pages]
@@ -71,19 +72,21 @@ ROW = ('<node clickable="true" bounds="[0,{t}][1080,{b}]">'
        '<node class="android.widget.CheckBox" checkable="true" checked="true" bounds="[876,{t}][1020,{b}]"/></node>')
 
 
-def app_page_with_row(y=700):
-    """应用通知页，「类别」下面多一行渠道行；y 传 2500 就把它放到屏外。"""
-    row = ROW % NAME
-    row = row.format(t=y, b=y + 156, t2=y + 30, b2=y + 106)
+def app_page_with_row(y=700, scrollable=True, title='<node class="android.widget.TextView" text="快手极速版"'
+                                                   ' bounds="[0,111][1080,360]"/>'):
+    """应用通知页，「类别」下面多一行渠道行。y 传 2500 把它放到屏外；
+    scrollable=False 造「列表没标可滚动」的页面；title 传空串造滚动后顶栏已收起的页面。"""
+    row = (ROW % NAME).format(t=y, b=y + 156, t2=y + 30, b2=y + 106)
     return page(
-        '<node class="android.widget.TextView" text="快手极速版" bounds="[0,111][1080,360]"/>',
+        title,
         '<node class="android.widget.Button" content-desc="向上导航" bounds="[24,168][156,300]"/>',
         '<node clickable="true" bounds="[0,381][1080,489]">'
         '<node class="android.widget.TextView" text="允许通知" bounds="[0,397][342,473]"/>'
         '<node class="android.widget.Switch" text="开启" content-desc="开启" checkable="true" checked="true"'
         ' clickable="true" bounds="[876,381][1020,489]"/></node>',
-        '<node class="androidx.recyclerview.widget.RecyclerView" scrollable="true" bounds="[0,520][1080,2280]">'
-        '<node class="android.widget.TextView" text="类别" bounds="[0,540][400,616]"/>'
+        '<node class="androidx.recyclerview.widget.RecyclerView"%s bounds="[0,520][1080,2280]">'
+        % (' scrollable="true"' if scrollable else '')
+        + '<node class="android.widget.TextView" text="类别" bounds="[0,540][400,616]"/>'
         + row + "</node>",
     )
 
@@ -179,13 +182,59 @@ class AppPageTests(unittest.TestCase):
         p.click.assert_not_called()
 
     def test_row_read_but_off_screen_is_scrolled_to(self):
-        # 列表没标 scrollable 时 scroll_more 直接返回 False；行已经在 dump 里、坐标在屏外，仍要翻一页
-        p = phone([app_page_with_row(y=2500), app_page_with_row(), CHANNEL_PAGE])
+        # 列表没标 scrollable 时 scroll_more 直接返回 False；行已经在 dump 里、坐标在屏下，仍要翻一页
+        p = phone([app_page_with_row(y=2500, scrollable=False), app_page_with_row(), CHANNEL_PAGE])
         at = chan.Attempt()
         with patch.object(chan.time, "sleep"):
             sw = chan.via_app_page(p, "com.kuaishou.nebula", NAME, at)
         p.scroll.assert_called_once()
         p.click.assert_called_once_with(330, 768)
+        self.assertEqual(sw[0], "允许通知")
+
+    def test_hidden_node_below_the_screen_does_not_justify_a_swipe(self):
+        # 折叠屏合上时 dump 里留着的另一块屏幕的节点是 invisible 的：翻页看不到它，不该滑
+        xml = app_page_with_row(y=2500, scrollable=False).replace(
+            '<node clickable="true" bounds="[0,2500][1080,2656]">',
+            '<node clickable="true" visible-to-user="false" bounds="[0,2500][1080,2656]">')
+        p = phone([xml])
+        with patch.object(chan.time, "sleep"):
+            self.assertIsNone(chan.via_app_page(p, "com.kuaishou.nebula", NAME, chan.Attempt()))
+        p.scroll.assert_not_called()
+        p.click.assert_not_called()
+
+    def test_scroll_that_moves_nothing_stops_instead_of_swiping_nine_times(self):
+        # 滑了页面没动（到底了）：不再连滑，也不把「没找到这一行」说成别的
+        p = phone([app_page_with_row(y=2500, scrollable=False)])
+        p.sig = Mock(return_value="same")
+        at = chan.Attempt()
+        with patch.object(chan.time, "sleep"):
+            self.assertIsNone(chan.via_app_page(p, "com.kuaishou.nebula", NAME, at))
+        p.scroll.assert_called_once()
+        p.click.assert_not_called()
+        self.assertEqual(at.stage, "应用通知页里没找到这一行")
+
+    def test_swipe_that_leaves_the_page_stops_instead_of_clicking(self):
+        # 自己翻页这条路要照 scroll_more 的规矩查焦点：页面被滑走了就停，不当成「没找到这一行」
+        p = phone([app_page_with_row(y=2500, scrollable=False)])
+        page_now = {"focus": FOCUS}
+        p.focus = Mock(side_effect=lambda: page_now["focus"])
+        p.scroll = Mock(side_effect=lambda: page_now.update(focus="com.android.settings/.SubSettings"))
+        at = chan.Attempt()
+        with patch.object(chan.time, "sleep"):
+            self.assertIsNone(chan.via_app_page(p, "com.kuaishou.nebula", NAME, at))
+        p.scroll.assert_called_once()
+        p.click.assert_not_called()
+        self.assertEqual(at.stage, "应用通知页翻页时离开了")
+
+    def test_app_name_recorded_before_the_title_bar_collapses(self):
+        # 应用通知页的顶栏在往下翻页后可能收起；「类别」那一屏先记下的 App 名照样能用来认渠道页
+        p = phone([app_page_with_row(y=2500, scrollable=False),
+                   app_page_with_row(title=""),
+                   CHANNEL_PAGE])
+        at = chan.Attempt()
+        with patch.object(chan.time, "sleep"):
+            sw = chan.via_app_page(p, "com.kuaishou.nebula", NAME, at)
+        self.assertEqual(at.vivo_app, APP)
         self.assertEqual(sw[0], "允许通知")
 
 

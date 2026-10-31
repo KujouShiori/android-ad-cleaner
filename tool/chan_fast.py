@@ -331,10 +331,18 @@ def group_floor(texts):
     return min((b[1] for t, b, _ in texts if t in CHANNEL_GROUP), default=None)
 
 
-def off_screen_name(root, name, on_screen):
-    """同名行已经读进 dump、坐标却在屏外：列表读到了后面的行，只差翻一页。"""
-    return any((n.get("text") or n.get("content-desc") or "").strip() == name and not on_screen(n)
-               for n in root.iter("node"))
+def off_screen_name(p, root, parents, name):
+    """同名行已经读进 dump、坐标却落在屏幕下沿之外：列表读到了后面的行，只差翻一页。
+    标了不可见的节点（折叠屏合上时留下的另一块屏幕）不算：翻页看不到它，「在屏外」不说明还有下一页。"""
+    for n in root.iter("node"):
+        if (n.get("text") or n.get("content-desc") or "").strip() != name or bounds(n)[1] < p.H:
+            continue
+        node = n
+        while node is not None and node.get("visible-to-user") != "false":
+            node = parents.get(node)
+        if node is None:
+            return True
+    return False
 
 
 def allow_switches(p, root):
@@ -493,6 +501,9 @@ def via_app_page(p, pk, name, at):
         parents = {c: n for n in root.iter() for c in n}
         texts = p.texts(root)
         floor = group_floor(texts) if vivo else None
+        if vivo and at.vivo_app is None and floor is not None:
+            # 这一屏有「类别」分组，说明是应用通知页：先记下 App 名。往下翻页后顶栏可能收起来（#336）
+            at.vivo_app = top_title(p, root)
         for text, b, n in texts:
             if text != name or b[1] < p.H * 0.22 or n.get("checkable") == "true":
                 continue
@@ -505,8 +516,9 @@ def via_app_page(p, pk, name, at):
                 at.stage = "应用通知页这一行的开关没认出"
                 return wait_page(p, name, at)    # 内联开关：不当作导航行点；vivo 的渠道行也带 checked，要点进去
             if vivo:
-                # 同一次读屏里列表有这一行渠道，说明是总页：这时的顶栏才是 App 名（直达页可能还没退掉）
-                at.vivo_app = top_title(p, root)
+                # 同一次读屏里列表有这一行渠道，说明是总页：这时的顶栏才是 App 名（直达页可能还没退掉）。
+                # 翻页后顶栏可能已经不在了，先前记下的 App 名照样有效
+                at.vivo_app = at.vivo_app or top_title(p, root)
             before = p.sig()
             l, t, r, btm = bounds(n)
             p.click((l + r) // 2, (t + btm) // 2)
@@ -519,10 +531,18 @@ def via_app_page(p, pk, name, at):
             at.stage = "点进去后没认出渠道页"
             return wait_page(p, name, at)
         if not p.scroll_more():
-            # vivo 的列表可能没标 scrollable，而渠道行已经读进 dump、坐标在屏外（#336）：再翻一页找它
-            if not (vivo and off_screen_name(root, name, p.on_screen)):
+            # vivo 的列表可能没标 scrollable，而渠道行已经读进 dump、坐标在屏下（#336）：自己翻一页找它。
+            # 这条路绕过了 scroll_more 的「没标可滚动就不滑」守卫，所以照它的规矩补一次焦点检查：
+            # 滑动把页面带走了就停下，不当成「没找到这一行」
+            if not (vivo and off_screen_name(p, root, parents, name)):
                 break
+            focus, before = p.focus(), p.sig()
             p.scroll()
+            if p.focus() != focus:
+                at.stage = "应用通知页翻页时离开了"
+                return None
+            if p.sig() == before:
+                break                     # 滑了没动：列表到底了，再滑也是空转
         root = None
     return None
 
