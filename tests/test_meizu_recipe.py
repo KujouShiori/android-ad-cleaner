@@ -3,6 +3,7 @@ import contextlib
 import io
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 from xml.etree import ElementTree as ET
@@ -104,6 +105,38 @@ class MeizuRecipeTests(unittest.TestCase):
         with patch.object(scope["time"], "sleep"), self.assertRaisesRegex(RuntimeError, "其他开关"):
             scope["close_named"](["目标"], "页面", "app/Settings")
         self.assertEqual(p.changed, [])
+
+
+class MeizuFamilyTests(unittest.TestCase):
+    """魅族要像另外四族一样，没有本型号脚本时兜底到同品牌参考（#379）。"""
+
+    def test_other_meizu_models_fall_back_to_the_21_pro_recipe(self):
+        for brand in ("MEIZU", "meizu", "Meizu"):
+            with self.subTest(brand=brand):
+                path, reference = run.recipe_for("MEIZU 22", brand)
+                self.assertTrue(reference)
+                self.assertEqual(Path(path), RECIPE)
+
+    def test_reference_is_pinned_not_the_first_directory(self):
+        # REFERENCE 必须显式指定：社区再提一份魅族脚本，别的魅族机型用的参考不能跟着变
+        with tempfile.TemporaryDirectory() as root:
+            for name in ("meizu-MEIZU 20", "meizu-MEIZU 21 Pro"):
+                Path(root, "recipes", name).mkdir(parents=True)
+                Path(root, "recipes", name, "recipe.py").write_text('BUILD = "Flyme 12.6.0.0A"\n', encoding="utf-8")
+            with patch.object(run, "ROOT", root):
+                path, reference = run.recipe_for("MEIZU 22", "MEIZU")
+                self.assertTrue(reference)
+                self.assertEqual(Path(path).parent.name, "meizu-MEIZU 21 Pro")
+
+    def test_other_families_still_resolve_to_their_reference(self):
+        cases = [("POCO", "xiaomi-M154FF"), ("Redmi", "xiaomi-M154FF"),
+                 ("OnePlus", "oppo-PLP120"), ("realme", "oppo-PLP120"),
+                 ("iQOO", "vivo-V2547DA"), ("HONOR", "honor-PNM-AN10")]
+        for brand, expected in cases:
+            with self.subTest(brand=brand):
+                path, reference = run.recipe_for("ZZZ0000", brand)
+                self.assertTrue(reference)
+                self.assertEqual(Path(path).parent.name, expected)
 
 
 if __name__ == "__main__":
