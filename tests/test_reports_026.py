@@ -353,8 +353,9 @@ class GuiTests(unittest.TestCase):
             stopped.wait.side_effect = lambda: (api.job.__setitem__("cancel", True), -15)[1]
             finish = Mock(stdout=io.StringIO("插电常亮已改回 0\n")); finish.wait.return_value = 0
             with patch.object(self.app.subprocess, "Popen", side_effect=[stopped, finish]) as popen:
-                api._work([("关闭营销通知", "run.py", ["-s", "test", "x"]), ("关闭快应用", "run.py", ["-s", "test", "quickapp", "off"]),
-                           ("收尾", "run.py", ["-s", "test", "finish"])])
+                api._work([self.app.Task("关闭营销通知", "run.py", ["-s", "test", "x"]),
+                           self.app.Task("关闭快应用", "run.py", ["-s", "test", "quickapp", "off"]),
+                           self.app.Task("收尾", "run.py", ["-s", "test", "finish"])])
             self.assertEqual(popen.call_count, 2)
             self.assertEqual([(r["title"], r.get("stopped", False)) for r in api.job["results"]], [("关闭营销通知", True), ("收尾", False)])
             self.assertIsNone(api.last_error)
@@ -372,7 +373,8 @@ class GuiTests(unittest.TestCase):
             api = self.api(directory)
             done = Mock(stdout=io.StringIO("")); done.wait.return_value = 0
             with patch.object(self.app.subprocess, "Popen", return_value=done):
-                api._work([("关闭营销通知", "@channels", [{"pkg": "com.taobao.taobao", "id": "promo", "name": "活动优惠", "app": "淘\t宝"}])])
+                api._work([self.app.Task("关闭营销通知", "chan_fast.py", uses_ui=True,
+                                         channels=[{"pkg": "com.taobao.taobao", "id": "promo", "name": "活动优惠", "app": "淘\t宝"}])])
             text = Path(directory, "backups", "M-gui", "channels.tsv").read_text(encoding="utf-8")
             self.assertIn("com.taobao.taobao\tpromo\t活动优惠\t淘 宝\n", text)
 
@@ -440,10 +442,10 @@ class PauseTests(unittest.TestCase):
                        "idx": 1, "total": 2, "title": "x"}
             self.assertTrue(api.pause())
             self.assertTrue(Path(directory, "pause").exists())
-            api._log("⏸ 已暂停：现在可以操作手机")
+            api._log('#aac:event {"kind": "paused"}')
             state = api.poll()
             self.assertEqual((state["pause"], state["paused"]), (True, True))
-            api._log("▶ 继续执行")
+            api._log('#aac:event {"kind": "resumed"}')
             api.resume()
             self.assertFalse(Path(directory, "pause").exists())
             self.assertEqual((api.poll()["pause"], api.poll()["paused"]), (False, False))
@@ -466,7 +468,8 @@ class PauseTests(unittest.TestCase):
                 done = Mock(stdout=io.StringIO("")); done.wait.return_value = 0
                 return done
             with patch.object(app.subprocess, "Popen", side_effect=proc):
-                api._work([("存改动前的快照", "run.py", ["-s", "t", "backup"]), ("收尾", "run.py", ["-s", "t", "finish"])])
+                api._work([app.Task("存改动前的快照", "run.py", ["-s", "t", "backup"]),
+                           app.Task("收尾", "run.py", ["-s", "t", "finish"])])
             self.assertEqual(envs, [str(Path(directory, "pause"))] * 2)
             log = "\n".join(api.job["lines"])
             self.assertLess(log.index("⏸ 已暂停"), log.index("▶ 收尾"))

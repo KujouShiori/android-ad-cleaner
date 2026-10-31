@@ -142,7 +142,7 @@ class ErrorTests(unittest.TestCase):
         process = Mock(stdout=io.StringIO(detail))
         process.wait.return_value = 1
         with patch.object(self.app.subprocess, "Popen", return_value=process):
-            self.api._work([("关闭广告", "run.py", [])])
+            self.api._work([self.app.Task("关闭广告", "run.py", [])])
         self.assertFalse(self.api.job["running"])
         self.assertEqual(self.api.job["results"][0]["rc"], 1)
         self.assertIn("first cause", self.api.last_error["detail"])
