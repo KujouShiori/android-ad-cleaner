@@ -135,8 +135,27 @@ def msa_net(serial, enable):
     return {"ok": ok, "supported": True, "reason": "" if ok else "msa 网络状态回读未确认成功"}
 
 
+# 部分 ROM 上 ro.build.version.release 单键读为空，真值在分区属性里（#195：HyperOS 4 /
+# 24129PN74C 上 release 单键空，ro.system.build.version.release 是 17）。完整 getprop dump
+# 在这台给的是陈旧的 6.0.1、SDK 21，所以只按顺序单键读，不退回 dump——宁可读不到也不报假版本。
+ANDROID_RELEASE_KEYS = ("ro.build.version.release",
+                        "ro.build.version.release_or_codename",
+                        "ro.system.build.version.release",
+                        "ro.product.build.version.release",
+                        "ro.system_ext.build.version.release")
+
+
 def prop(serial, k):
     return sh(serial, f"getprop {k}")
+
+
+def android_release(serial):
+    """按 ANDROID_RELEASE_KEYS 的顺序取第一个非空值，都读不到返回空串。"""
+    for k in ANDROID_RELEASE_KEYS:
+        value = prop(serial, k)
+        if value:
+            return value
+    return ""
 
 
 def info(serial):
@@ -147,7 +166,8 @@ def info(serial):
         "build": prop(serial, "ro.build.display.id"),
         "os": prop(serial, "ro.mi.os.version.incremental") or prop(serial, "ro.build.version.opporom")
               or prop(serial, "ro.vivo.os.build.display.id") or prop(serial, "ro.build.version.magic"),
-        "android": prop(serial, "ro.build.version.release"),
+        # 都读不到时给「未知」：诊断输出留空会被当成没读到（#195 正文第 4 条）
+        "android": android_release(serial) or "未知",
     }
 
 
