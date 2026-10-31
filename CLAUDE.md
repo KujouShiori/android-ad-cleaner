@@ -7,12 +7,14 @@
 ## 开发
 
 - 回归：`python -m unittest discover -s tests`；本机用仓库根的 `.venv/bin/python`（系统 python 缺 adbutils，会报一串 ModuleNotFoundError）。只装 `requirements.txt` 就够，不需要 pywebview / pillow。并行会话在各自的 worktree 里干活时，那个目录没有 `.venv`，用主副本 `.venv/bin/python` 的绝对路径；Read/Edit 也一律用该 worktree 的绝对路径。
+- 本机 `.venv` 是 3.15，CI 是 3.12，而解释器会改写部分输出（3.13 起编译器剥掉文档字符串的公共缩进，异常 repr、argparse 帮助同理）。推送前用 CI 那一版再跑一套：`uv run --python 3.12 --with-requirements requirements.txt python -m unittest discover -s tests`（首次装环境约 30 秒）。
 - 数基线总数用干净副本：`git archive origin/main | tar -x -C /tmp/x` 后在 `/tmp/x` 里跑同一套。主副本里可能躺着别的会话没提交的用例。
 - CI：`.github/workflows/test.yml` 在 PR 和 main 推送时自动跑同一套；`build-windows.yml` 只在 `v*` 标签或手动触发时打包，不守 PR。
 - 静态检查：`uvx ruff@0.17.3 check --select F,E9 tool tests gui`，本地与 CI 同一个版本（CI 就钉 0.17.3，`.venv` 里没有 ruff）。不查 `recipes/`——机型脚本靠注入作用域执行，静态分析看到的全是未定义名；也不开格式与行长规则。
 - CHANGELOG 的新行加在 `## 未发布` 一节；rebase 后先 `git rebase --continue` 把提交落完、再跑回归与对拍，并确认 `## 未发布` 没有被已发版的小节吸收（main 刚发过版时要重新开出来）。
 - 审查标准：见 [CODING_STANDARDS.md](CODING_STANDARDS.md)，只放判断项；机械规则交给 CI。
 - 社区问题的归类与真机缺口见 [docs/09](docs/09-社区问题处理.md)：那里只记 GitHub 上看不到的判据与缺口，逐条回复与 issue 编号留在 issue 里。
+- 找「命令怎么分派、退出码怎么定」先看 [tool/run.py](tool/run.py) 的 `dispatch()` 与 `COMMANDS`：一条命令一个 `cmd_*(serial, rest) -> int`，`sys.exit` 只在 `__main__` 一处；退出码语义见 [ADR-0005](docs/adr/0005-run-command-handlers.md)。
 - 找「开关所属的行」先看 [tool/row.py](tool/row.py)：`line` 结构定界、`own` 多开关容器收窄、`title_of` 平铺列表按竖直距离分带；`fast.py` 与 `chan_fast.py` 消费它，不要另写一份。
 - 找「等页面认得出」先看 [tool/wait.py](tool/wait.py)：`settle` / `setting` / `wait_page` / `off` 都消费 `until()`，不要另写轮询循环。
 - 找「引擎报给客户端的状态」先看 [tool/events.py](tool/events.py)：五个 kind 与事件行格式只在那里定义（[ADR-0004](docs/adr/0004-engine-state-events.md)），引擎侧 `emit()`、`gui/app.py` 的 `_log()` 都走它；不要再按中文文案判断状态。

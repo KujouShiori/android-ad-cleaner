@@ -26,9 +26,20 @@
 对拍要能证伪：只喂成功路径的对拍不算证据。
 
 - 每个入口至少各有一条真正走到**目标分支**的用例：断线、非断线的失败、超时，各算一条。成功路径上两边走的都是同一条捷径，相等是必然的。
+- 断线要两种各一条：**开跑前就断**（第一条 adb 命令就失败）与**跑到一半断**（前几步成功、中途掉线）。后者才走得到宽泛 `except` 的收容路径和 `finally` 的恢复路径，只覆盖前者的对拍对这两处是盲的。
 - 每条目标分支配一个**守卫断言**，断言它确实走到了那里（异常类型、关键文案、调用次数）。没有守卫断言时，「两边都抛同一个异常」「两边都因为回答列表空了而 `IndexError`」都会冒充一致。
 
 反例：`fast.Phone` 那条路径的假 shell 把任何非零返回码都变成断线异常，于是「普通失败（非断线）」一例在新旧两边都抛 `IndexError: pop from empty list`，对拍照样通过——直到 spec 轴逐条读实现才发现这个用例什么也没测。
+
+反例：#373 的 29 组对拍只做到「开跑前就断」，`quickapp` 的 vivo 开关路径和 `recipe` 的 `finally` 恢复都没走到，两个真 bug 由评审抓出而不是测试——见下一节。
+
+## 换掉一个 helper 的错误契约时，遍历它的收容点
+
+把一个 helper 的终止方式从 `sys.exit` 改成抛异常（或反向），改的不只是它自己。`except (...)` 按异常类型匹配：`sys.exit` 抛的是 `SystemExit`（`BaseException`，`except Exception` / `except RuntimeError` 都抓不到），换成 `RuntimeError` 的子类之后，原来安全的那几处宽泛 `except` 会开始接住它。`try/finally` 则是时机问题：挂起的 `SystemExit` 要等 `finally` 跑完才由解释器渲染，而 `print` / `return` 是当场发生。
+
+两件各查一遍：调用链上每个 `except` 的收容集合是否仍只收业务失败；每个 `try/finally` 里有没有「等 `finally` 跑完才发生」的副作用（打印、退出码）。
+
+反例：#373 把 `run.adb_shell()` 从 `sys.exit` 改成抛 `DeviceLost`。`quickapp off` / `on` 里包住 `set_quickapp_service()` 的 `except (RuntimeError, OSError, ValueError)` 从此接得住断线，把它报成「某个组件关闭失败」，`off` 甚至返回 0（#293 反对的混判）；`cmd_recipe` 的 `finally` 恢复插电常亮失败时，新写法比旧写法多打一行。两处都是评审逐行读出来的。
 
 ## `Phone` 构造处声明的字段直接读，不用 `getattr` 兜底
 
