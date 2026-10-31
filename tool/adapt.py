@@ -19,19 +19,11 @@ for _st in (sys.stdout, sys.stderr):
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fast                                    # 只读 want_state / 驱动 Phone；不改引擎
 from fast import Phone
+from run import script_cmd                     # 打包版起子进程要带 --cli，这一处已知规矩只在 run.py 写
 
-TOOL = os.path.dirname(os.path.abspath(__file__))
 TSV_COLS = ("pkg", "page", "title", "state", "ad", "pick")
 # 人工勾选列里写这些值=要关；空=不关。工具不自动勾选。
 SELECT_MARKS = {"关", "是", "y", "yes", "1", "√", "✓", "选中", "true"}
-
-
-def script_cmd(script, *args):
-    """启动 tool/ 里的另一个脚本。打包版（客户端）里 sys.executable 是客户端本身，
-    必须带 --cli，否则会再打开一个客户端窗口、引擎没跑起来。"""
-    if getattr(sys, "frozen", False):
-        return [sys.executable, "--cli", script, *args]
-    return [sys.executable, os.path.join(TOOL, script), *args]
 
 
 # ---------- 探路 TSV ----------
@@ -276,11 +268,12 @@ def cmd_gen(rest):
 # ---------- 安全模式自检 ----------
 
 def check_draft(p, recipe_path, only=()):
-    """安全模式跑草稿并统计回读结果。驱动方式与 fast.py 的 recipe run 一致：
-    exec 注入 p/ONLY 到 globals（fast.py:710-720），引擎逻辑本身不改。"""
+    """安全模式跑草稿并统计回读结果。驱动方式与 fast.py 的 `run` 分支一致：
+    exec 注入 p/ONLY 到 globals，引擎逻辑本身不改。"""
     with open(recipe_path, encoding="utf-8") as f:
         src = f.read()
-    os.environ["AAC_REF"] = "1"                 # 安全模式：只关 only= 点名的开关（fast.py:447 消费）
+    # 手改过的草稿若写了不带 only= 的 p.off()，靠这个也只关点名的开关，不整页全关。
+    p.safe_mode = True
     g = {"p": p, "__name__": "__draft__", "ONLY": list(only)}
     build = p.d.shell("getprop ro.build.display.id").output.strip()
     osv = p.d.shell("getprop ro.mi.os.version.incremental").output.strip()

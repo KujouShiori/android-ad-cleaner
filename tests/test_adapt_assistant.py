@@ -4,7 +4,6 @@
 """
 import contextlib
 import io
-import os
 from pathlib import Path
 import sys
 import tempfile
@@ -18,6 +17,7 @@ sys.path.insert(0, str(ROOT / "tool"))
 import adapt
 import explore
 import run
+from fixtures import phone_mock
 
 TSV = """包名\t页面\t开关\t状态\t像广告\t人工勾选
 # 在末列写「关」挑出要关的开关
@@ -38,7 +38,7 @@ def write_tsv(directory, text=TSV, name="探路-PJA110.tsv"):
 
 def draft_phone(switch_lists, tap_ok=True):
     """能跑草稿的 Mock 手机：入口都点得到，开关状态按 switch_lists 回读。"""
-    p = Mock()
+    p = phone_mock()                       # safe_mode 在这里是明确的 False，不是 Mock 的真值
     p.W, p.H, p.miss, p.changed = 1168, 1712, 0, []
     p.locked.return_value = False
     p.find.return_value = None
@@ -170,9 +170,10 @@ class CheckReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             out = self.draft(d)
             p = draft_phone([[("个性化推荐", True, (1, 2))], [("个性化推荐", False, (1, 2))]] * 2)
-            with patch.dict(os.environ), contextlib.redirect_stdout(io.StringIO()):
+            self.assertIs(p.safe_mode, False)
+            with contextlib.redirect_stdout(io.StringIO()):
                 report = adapt.check_draft(p, str(out))
-                self.assertEqual(os.environ.get("AAC_REF"), "1")   # 安全模式已置位
+                self.assertIs(p.safe_mode, True)   # 自检必须把手机切进安全模式
         self.assertEqual(report, {"verified": 2, "missing": [], "pending": [], "failed_steps": []})
         self.assertTrue(adapt.print_report(report))
         self.assertEqual(p.off.call_count, 2)
@@ -181,7 +182,7 @@ class CheckReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             out = self.draft(d)
             p = draft_phone([[("别的开关", True, (1, 2))]] * 10)
-            with patch.dict(os.environ), contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stdout(io.StringIO()):
                 report = adapt.check_draft(p, str(out))
         self.assertEqual(report["verified"], 0)
         self.assertEqual(report["missing"], ["个性化推荐", "个性化推荐"])
@@ -192,7 +193,7 @@ class CheckReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             out = self.draft(d)
             p = draft_phone([[("个性化推荐", True, (1, 2))]] * 10)
-            with patch.dict(os.environ), contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stdout(io.StringIO()):
                 report = adapt.check_draft(p, str(out))
         self.assertEqual(report["verified"], 0)
         self.assertEqual(report["pending"], ["个性化推荐", "个性化推荐"])
@@ -203,7 +204,7 @@ class CheckReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             out = self.draft(d)
             p = draft_phone([], tap_ok=False)
-            with patch.dict(os.environ), contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stdout(io.StringIO()):
                 report = adapt.check_draft(p, str(out))
         self.assertEqual(report["verified"], 0)
         self.assertEqual(report["failed_steps"],
@@ -218,10 +219,9 @@ class CheckReportTests(unittest.TestCase):
         self.assertIn("不能把部分完成当成适配成功", out.getvalue())
 
     def run_check_entry(self, draft_path, switch_lists):
-        """走 check 的真实入口（adapt.py:360 sys.exit(main(...))），拿进程退出码。"""
+        """走 check 的真实入口（`adapt.main(["check", …])`），拿进程退出码。"""
         p = draft_phone(switch_lists)
-        with patch.object(adapt, "Phone") as P, patch.dict(os.environ), \
-                contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(adapt, "Phone") as P, contextlib.redirect_stdout(io.StringIO()):
             P.return_value.__enter__.return_value = p
             with self.assertRaises(SystemExit) as result:
                 sys.exit(adapt.main(["check", "-s", "FAKE_SERIAL", str(draft_path)]))
