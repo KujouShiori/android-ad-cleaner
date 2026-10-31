@@ -50,15 +50,25 @@ def tap_any(*names, scrolls=6):
 
 
 def gear(toolbar_only=False):
-    """很多小米 App 的设置是右上角齿轮图标，没有文字。"""
+    """很多小米 App 的设置是右上角齿轮图标，没有文字。
+    匹配只认正好是「设置」的描述、正文或 setting 类 id：商店「我的」页有一行正文「去功能设置里
+    重新开启」，主题商店有「设置壁纸」，按包含匹配会先命中它们、点进别的子页，整段跑空（#305 / #374）。"""
+    from fast import bounds
+
+    def icon_hit(n):
+        desc = (n.get("content-desc") or "").strip().lower()
+        text = (n.get("text") or "").strip().lower()
+        if desc in ("设置", "settings", "setting") or text in ("设置", "settings", "setting"):
+            return True
+        # id 只认整段收尾就是 setting* 的：商店「我的」页的 securitySettingSwitchLayout
+        # 也含 setting，点进去是「应用安全检测」。
+        return (n.get("resource-id") or "").lower().endswith(
+            ("/settings", "/setting", "/setting_icon", "/setting_layout"))
+
     for n in p.tree().iter("node"):
-        d = (n.get("content-desc") or "") + (n.get("resource-id") or "") + (n.get("text") or "")
-        from fast import bounds
         l, t, r, b = bounds(n)
         icon = "ImageView" in n.get("class", "") and r - l < p.W * 0.25 and b - t < p.H * 0.15
-        if (any(k in d.lower() for k in ("设置", "setting"))
-                and not any(k in d.lower() for k in ("更多", "more"))
-                and (n.get("clickable") == "true" or icon) and p.on_screen(n)
+        if (icon_hit(n) and (n.get("clickable") == "true" or icon) and p.on_screen(n)
                 and (not toolbar_only or b < p.H * 0.23)):
             p.click((l + r) // 2, (t + b) // 2)
             time.sleep(1)

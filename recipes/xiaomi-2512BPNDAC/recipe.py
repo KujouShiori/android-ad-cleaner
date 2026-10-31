@@ -44,18 +44,19 @@ def maybe(name, scrolls=6):
 
 def gear(toolbar_only=False):
     """很多小米 App 的设置是右上角齿轮图标，没有文字。
-    只认 content-desc / resource-id 里的「设置」，不认正文：商店「我的」页有一行正文
-    「去功能设置里重新开启」，按文字匹配会一路点进「功能设置」子页，整段跑空。"""
+    匹配只认正好是「设置」的描述、正文或 setting 类 id：商店「我的」页有一行正文「去功能设置里
+    重新开启」，主题商店有「设置壁纸」，按包含匹配会先命中它们、点进别的子页，整段跑空（#305 / #374）。"""
     from fast import bounds
 
     def icon_hit(n):
         desc = (n.get("content-desc") or "").strip().lower()
-        rid = (n.get("resource-id") or "").lower()
-        if desc in ("设置", "settings", "setting"):
+        text = (n.get("text") or "").strip().lower()
+        if desc in ("设置", "settings", "setting") or text in ("设置", "settings", "setting"):
             return True
-        # id 只认整段是 settings / setting_icon / setting_layout 的，不能只看「setting」子串：
-        # 商店「我的」页的 securitySettingSwitchLayout 也含 setting，点进去是「应用安全检测」。
-        return rid.endswith(("/settings", "/setting", "/setting_icon", "/setting_layout"))
+        # id 只认整段收尾就是 setting* 的：商店「我的」页的 securitySettingSwitchLayout
+        # 也含 setting，点进去是「应用安全检测」。
+        return (n.get("resource-id") or "").lower().endswith(
+            ("/settings", "/setting", "/setting_icon", "/setting_layout"))
 
     for n in p.tree().iter("node"):
         l, t, r, b = bounds(n)
