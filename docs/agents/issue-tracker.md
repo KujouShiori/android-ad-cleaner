@@ -25,7 +25,10 @@ Infer the repo from `git remote -v` — `gh` does this automatically when run in
 
 外部 PR 和 issue 走同一套状态，但**处置方式按类型分**：
 
-- **机型/清单类**（只碰 `recipes/`、`docs/清单/`、`tests/`、`CHANGELOG.md`、README 机型表）：CI 过 + 三查即可合并。三查：用 `p.off()` 不自己点开关、`tap_confirm()` 先确认出现带「取消」的确认框、CHANGELOG / README 机型表 / 清单三处齐。
+- **机型/清单类**（只碰 `recipes/`、`docs/清单/`、`tests/`、`CHANGELOG.md`、README 机型表）：CI 过 + 三查即可合并。三查：
+  - 关开关用 `p.off()`，不在配方里自己逐个点开关；
+  - 确认框用引擎的 `p.confirm()`，默认不自己写确认 helper；确需绕过的机型要在脚本注释里写明 `p.confirm()` 为什么不适用。它的保证只有三条：只点 Button 类节点；Button 自身没有文字时，下级节点整段等于 `CONFIRM`（`tool/fast.py`）里的词也算；跳过屏外节点。它不判断弹窗是否存在——页面上任何整段标着「关闭」「确定」的 Button 都可能被点到，所以不能把它当成「确认框已经出现」的证据；
+  - CHANGELOG / README 机型表 / 清单三处齐。
 - **核心行为类**（碰 `tool/`、`gui/`、`AGENTS.md`、架构）：采纳分析，按本仓库的模型重新实现，不整单合并。口径见 [docs/09](../09-社区问题处理.md) 的「相关 PR 的采用范围」。
 
 When set to `yes`, PRs run through the same labels and states as issues, using the `gh pr` equivalents:
