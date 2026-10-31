@@ -19,7 +19,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: 安装依赖
-        run: pip install pywebview pyinstaller uiautomator2 pillow
+        run: pip install -r requirements.txt pywebview pyinstaller pillow
+      - name: 设备无关回归测试
+        run: |
+          $env:ADB = "$env:ANDROID_HOME\platform-tools\adb.exe"
+          python -m unittest discover -s tests -v
       - name: 读版本号
         id: ver
         run: |
@@ -27,11 +31,11 @@ jobs:
           "ver=$v" >> $env:GITHUB_OUTPUT
       - name: PyInstaller 打包
         run: pyinstaller --noconfirm --distpath gui/dist --workpath gui/build gui/windows.spec
-      - name: 冒烟测试（命令行模式经管道输出，和客户端调用方式一致）
+      - name: 冒烟测试（命令行、GUI 页面、图片与 JS API）
         run: |
           $env:ADB = "$env:ANDROID_HOME\platform-tools\adb.exe"
           $env:ADBUTILS_ADB_PATH = $env:ADB
-          python gui/smoke_test.py gui\dist\AndroidAdCleaner\aac-cli.exe
+          python gui/smoke_test.py gui\dist\AndroidAdCleaner\aac-cli.exe --gui
       - name: 便携版 zip
         run: Compress-Archive -Path gui/dist/AndroidAdCleaner -DestinationPath "gui/dist/AndroidAdCleaner-${{ steps.ver.outputs.ver }}-windows-portable.zip"
       - name: 安装程序（Inno Setup）
@@ -51,4 +55,19 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.ref_name }}" gui/dist/*.zip gui/dist/*-setup.exe --clobber
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $release = gh release view $tag --json isDraft,assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw "请先创建对应的 Release 草稿" }
+          if (-not $release.isDraft) {
+            Write-Host "Release 已公开，保留已验证文件及 SHA256，不用重建产物覆盖。"
+            exit 0
+          }
+          foreach ($file in Get-ChildItem gui/dist/*.zip, gui/dist/*-setup.exe) {
+            if ($release.assets.name -contains $file.Name) {
+              Write-Host "已存在，保留：$($file.Name)"
+              continue
+            }
+            gh release upload $tag $file.FullName
+            if ($LASTEXITCODE -ne 0) { throw "上传失败：$($file.Name)" }
+          }
