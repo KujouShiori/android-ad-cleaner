@@ -558,7 +558,11 @@ class Phone:
         return False
 
     def go(self, text, expect, tries=3, exact=True):
-        """点 text，直到 expect 出现在屏幕上（被弹窗吞掉就再点）。"""
+        """点 text，直到 expect 出现在屏幕上（被弹窗吞掉就再点）。
+        精确匹配找不到时退回包含匹配：底部标签常读作「我的，有新消息」，精确匹配「我的」返回空（#305）。
+        放宽的只是点哪个节点，落点仍由 expect 确认，点错了照样返回 False。"""
+        if exact and not self.find(text, exact=True, edge_ok="tab", nav=True):
+            exact = False
         for _ in range(tries):
             self.tap(text, exact=exact, scrolls=0)
             for _ in range(5):
