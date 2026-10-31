@@ -265,6 +265,13 @@ def outcome(call):
     return ("value", result)
 
 
+def as_exit(result):
+    """run.adb_shell 现在把断线抛给 main() 的出口（ADR-0005），与旧的 sys.exit(str(e)) 进程级等价：
+    同一句文案、同一个退出码，只是异常换了类型。逐字节的退出码与 stderr 由
+    tests/test_run_commands.py 的子进程对拍守着，这里只对到「同一句话」。"""
+    return ("exit", result[2]) if result[:2] == ("raise", "DeviceLost") else result
+
+
 class ParityTests(unittest.TestCase):
     """四个入口的改前改后对拍：同一批回答，argv、重试次数、结果逐项相同。"""
 
@@ -289,21 +296,22 @@ class ParityTests(unittest.TestCase):
     def drive(self, script, wait_ok, call_old, call_new):
         old_argv, old = self.run_script(script, wait_ok, call_old)
         new_argv, new = self.run_script(script, wait_ok, call_new)
-        self.assertEqual(old, new)
+        self.assertEqual(as_exit(old), as_exit(new))
         self.assertEqual(old_argv, new_argv)
         return new
 
     def test_run_adb_shell(self):
         seen = {}
-        with patch.object(run, "ADB", self.ADB):
+        with patch.object(run, "adb", return_value=self.ADB):
             for name, (script, wait_ok) in CASES.items():
                 with self.subTest(name):
                     seen[name] = self.drive(script, wait_ok,
                                             lambda: old_run_adb_shell(self.ADB, "S", "getprop ro.product.model"),
                                             lambda: run.adb_shell("S", "getprop ro.product.model"))
         # 对拍不能是空跑：这几条必须真的走到报错与退出两条路
-        self.assertIn("手机助手", str(seen["断线且等不回来"][1]))
-        self.assertIn("手机助手", str(seen["等回来但第二次还断"][1]))
+        self.assertEqual(seen["断线且等不回来"][:2], ("raise", "DeviceLost"))
+        self.assertIn("手机助手", str(seen["断线且等不回来"][2]))
+        self.assertIn("手机助手", str(seen["等回来但第二次还断"][2]))
 
     def test_chan_shell_phone(self):
         seen = {}

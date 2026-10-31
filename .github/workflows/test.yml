@@ -16,7 +16,7 @@ jobs:
           python-version: "3.12"
       - name: 安装依赖
         run: pip install -r requirements.txt
-      - name: 准备 adb（run.py 在 import 时就要求找得到 adb，测试本身不用手机）
+      - name: 准备 adb（不用手机；`tool/` 下的脚本按需解析 adb，缺了会走「找不到 adb」那条分支）
         run: |
           adb="$(command -v adb || true)"
           sdk="${ANDROID_HOME:-/usr/local/lib/android/sdk}/platform-tools/adb"

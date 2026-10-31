@@ -375,8 +375,7 @@ class LaunchTests(unittest.TestCase):
              patch.object(run, "locked", return_value=False), \
              patch.object(run, "sh", return_value="15"), \
              patch.object(run, "py", return_value=0) as py:
-            with self.assertRaises(SystemExit):
-                run.main()
+            self.assertEqual(run.main(), 0)
         self.assertEqual(py.call_args.args, ("fast.py", "-s", "test", "run", "recipe.py", "--ref"))
 
     def test_recipe_restores_stay_awake_on_failure(self):

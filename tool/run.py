@@ -70,22 +70,31 @@ QUICKAPP_KEEP = {
 }
 
 
-def adb_bin():
+class NoAdb(RuntimeError):
+    """找不到 adb。和断线一样，文案与退出码由 main() 的出口渲染。"""
+
+
+def adb():
+    """adb 可执行文件。以前是 import 期算一次的模块常量，找不到就当场退出（ADR-0005）。"""
     path = adb_link.adb_path()
     if not path:
-        sys.exit(adb_link.NO_ADB)
+        raise NoAdb(adb_link.NO_ADB)
     return path
 
 
-ADB = adb_bin()
+def fail(message, code=1):
+    """命令失败的唯一渲染：与原来的 sys.exit("文案") 一样，文案进 stderr、退出码 1。"""
+    print(message, file=sys.stderr)
+    return code
 
 
 def adb_shell(serial, cmd):
-    """手机掉线时等它回来重试一次；仍不在就停止本步骤（Issue #147：以前读到空结果仍显示成功）。"""
-    try:
-        return adb_link.Connection(serial, adb=ADB).shell(cmd)
-    except adb_link.DeviceLost as e:
-        sys.exit(str(e))
+    """手机掉线时等它回来重试一次；仍不在就抛 DeviceLost 交给 main() 的出口。
+
+    Issue #147：以前读到空结果仍显示成功。link_lost 事件在 DeviceLost 构造时就发了（ADR-0004），
+    所以谁把它转成退出码都不影响事件（ADR-0005）。
+    """
+    return adb_link.Connection(serial, adb=adb()).shell(cmd)
 
 
 def sh(serial, cmd, check=False):
@@ -380,285 +389,337 @@ def script_cmd(script, *args):
     return [sys.executable, os.path.join(TOOL, script), *args]
 
 
-def main():
-    a = sys.argv[1:]
-    if not a or a[0] in ("-h", "--help"):
-        print(__doc__); return
-    if a[0] == "devices":
-        out = subprocess.run([ADB, "devices"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
-        rows = [l.split("\t") for l in out.splitlines()[1:] if "\t" in l]
-        if not rows:
-            print("没有连着的手机。检查数据线、USB 调试，见 docs/01-准备工作.md")
-        for ser, st in rows:
-            if st != "device":
-                print(f"{ser}\t{st}\t（unauthorized=手机上点「允许 USB 调试」；offline=重插或重开无线调试）"); continue
-            i = info(ser); r, ref = recipe_for(i["model"], i["brand"], i)
-            tag = (os.path.relpath(r, ROOT) + ("（同品牌参考）" if ref else "")) if r else "无（只能跑通用部分）"
-            print(f"{ser}\t{i['name'] or i['brand']+' '+i['model']}\t{i['model']}\t{i['build']}\t机型脚本：{tag}")
-        return
-    if a[0] != "-s" or len(a) < 3:
-        sys.exit("命令格式：run.py -s <序列号> <命令>。先跑 run.py devices 看序列号")
-    s, cmd, rest = a[1], a[2], a[3:]
+def cmd_devices(rest):
+    out = subprocess.run([adb(), "devices"], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
+    rows = [l.split("\t") for l in out.splitlines()[1:] if "\t" in l]
+    if not rows:
+        print("没有连着的手机。检查数据线、USB 调试，见 docs/01-准备工作.md")
+    for ser, st in rows:
+        if st != "device":
+            print(f"{ser}\t{st}\t（unauthorized=手机上点「允许 USB 调试」；offline=重插或重开无线调试）"); continue
+        i = info(ser); r, ref = recipe_for(i["model"], i["brand"], i)
+        tag = (os.path.relpath(r, ROOT) + ("（同品牌参考）" if ref else "")) if r else "无（只能跑通用部分）"
+        print(f"{ser}\t{i['name'] or i['brand']+' '+i['model']}\t{i['model']}\t{i['build']}\t机型脚本：{tag}")
+    return 0
 
-    if cmd == "ui-check":
-        sys.exit(py("fast.py", "-s", s, "check"))
 
-    elif cmd == "check":
-        i = info(s); r, ref = recipe_for(i["model"], i["brand"], i)
-        print(f"机型：{i['name'] if i['name'].upper().startswith(i['brand'].upper()) else i['brand']+' '+i['name']}（{i['model']}），系统 {i['build']}，Android {i['android']}")
-        print(f"锁屏：{'是（请机主解锁）' if locked(s) else '否'}")
-        if input_blocked(s, i["brand"]):
-            print("电脑点击：被系统拒绝。" + troubleshooting.XIAOMI_INPUT)
-        if r and ref:
-            print(f"机型脚本：本型号没有；同品牌参考 {os.path.relpath(r, ROOT)}。要用：recipe --ref（安全模式：只关脚本里点名的开关，找不到就跳过）")
-        elif r:
-            rb = recipe_meta(r)["build"]
-            ok = build_ok(i, rb)
-            print(f"机型脚本：{os.path.relpath(r, ROOT)}；录制版本 {rb or '未标'}，{'版本一致' if ok else '版本不同：用安全模式跑，部分步骤可能找不到入口'}")
-        else:
-            print("机型脚本：没有。可跑：通知渠道 chan-scan/chan-off、广告包挂起；其余照 docs/清单 手动做，或用 tool/explore.py 探路")
-        for p in ad_packages(i["brand"]):
-            exists = "package:" in sh(s, f"pm path {p}")
-            print(f"  广告包 {p}：{'未安装' if not exists else ('已挂起' if suspended(s, p) else '未挂起')}")
-        for q in quickapps(s):
-            print(f"  快应用 {q['pkg']}（{q['name']}）：{'已关闭' if q['closed'] else '未关闭'}"
-                  f"（{'系统服务开关' if q['method'] == 'setting' else '挂起状态'}）")
-        print(f"插电常亮：{sh(s, 'settings get global stay_on_while_plugged_in')}")
+def cmd_ui_check(serial, rest):
+    return py("fast.py", "-s", serial, "check")
 
-    elif cmd == "backup":
-        # 先探活再建目录：读不到包列表时不留半成品快照（后续步骤会把最新目录当成改动前的快照）。
-        # 带过滤参数的清单可以合法为空，只有不带参数的完整清单不可能为空。
-        probe = pkg_list(s)
-        if not re.search(r"(?m)^package:", probe):
-            detail = f"；手机返回：{probe[-180:]}" if probe else ""
-            sys.exit(f"✗ 读不到包列表（pm list 与 cmd package list 都没有包名），未生成快照{detail}")
-        d = latest_backup(s, create=True)
-        Path(d, "info.txt").write_text("\n".join(f"{k}={v}" for k, v in info(s).items()), encoding="utf-8")
-        for name, args in (("sys.txt", "--user 0 -s"), ("user.txt", "--user 0 -3"), ("disabled.txt", "--user 0 -d")):
-            Path(d, name).write_text(pkg_list(s, args), encoding="utf-8")
-        Path(d, "notif.txt").write_text(sh(s, "dumpsys notification --noredact"), encoding="utf-8")
-        st = "\n".join(f"## {n}\n" + sh(s, f"settings list {n}") for n in ("system", "secure", "global"))
-        Path(d, "settings-before.txt").write_text(st, encoding="utf-8")
-        Path(d, "stay_on.txt").write_text(sh(s, "settings get global stay_on_while_plugged_in"), encoding="utf-8")
-        print(f"快照已存：{display_backup_path(d)}")
 
-    elif cmd == "recipe":
-        i = info(s); r, ref = recipe_for(i["model"], i["brand"], i)
-        use_ref = "--ref" in rest
-        rest = [x for x in rest if x != "--ref"]
-        if not r or (ref and not use_ref):
-            sys.exit("这个型号没有机型脚本。" + (f"同品牌有参考脚本 {os.path.relpath(r, ROOT)}，加 --ref 试用。" if r else "") +
-                     "写法见 docs/04-给新机型写脚本.md")
-        safe_mode = bool(ref or not build_ok(i, recipe_meta(r)["build"]))
-        if safe_mode:
-            print("⚠ 安全模式：这份机型脚本不是按这台的型号和系统版本录的。只关脚本里点名的开关，找不到入口的步骤跳过。")
-        stay_on = sh(s, "settings get global stay_on_while_plugged_in")
-        try:
-            sh(s, "settings put global stay_on_while_plugged_in 7")
-            if not wait_unlocked(s):
-                sys.exit("✗ 手机一直锁屏，本步骤没有执行。请解锁手机、保持亮屏后重试")
-            rc = py("fast.py", "-s", s, "run", r, *(["--ref"] if safe_mode else []), *rest)
-        finally:
-            sh(s, f"settings put global stay_on_while_plugged_in {int(stay_on) if stay_on.isdigit() else 0}")
-        sys.exit(rc)
-
-    elif cmd == "chan-scan":
-        d = latest_backup(s)
-        result = subprocess.run(script_cmd("chan_fast.py", "-s", s, "scan"),
-                                capture_output=True, text=True, encoding="utf-8", errors="replace")
-        if result.returncode:
-            print(result.stderr or result.stdout, file=sys.stderr)
-            sys.exit(result.returncode)
-        out = result.stdout
-        f = os.path.join(d, "channels.tsv")
-        Path(f).write_text(
-            "# 包名\t渠道id\t渠道名\t应用名。人工核对：删掉服务类（热点共享、红包、防盗、直播提醒等）后再 chan-off\n" + out, encoding="utf-8")
-        print(out); print(f"候选清单：{display_backup_path(f)}（共 {out.count(chr(10))} 条）")
-
-    elif cmd in ("chan-off", "chan-on"):
-        if not rest:
-            sys.exit("要给清单文件，比如 backups/<型号>-<时间>/channels.tsv")
-        sys.exit(py("chan_fast.py", "-s", s, cmd.split("-")[1], rest[0]))
-
-    elif cmd == "suspend":
-        bad = [p for p in rest if p in NEVER]
-        if bad:
-            sys.exit(f"这些包挂了会坏功能，不挂：{bad}")
-        d = latest_backup(s)
-        fail = 0
-        with open(os.path.join(d, "suspended.txt"), "a", encoding="utf-8") as f:
-            for p in rest:
-                out = sh_all(s, f"pm suspend --user 0 {p}")
-                if suspended(s, p):
-                    f.write(p + "\n")
-                    extra = ""
-                    if p == MSA:
-                        sh(s, f"am force-stop {p}")
-                        network = msa_net(s, False)
-                        if network["ok"]:
-                            extra = "，已禁止联网"
-                        elif not network["supported"]:
-                            # 系统没有这个接口，用户也改不了：挂起已完成，不算失败（错误日志 10-27，7 份报告）
-                            extra = "（这台手机的系统没有 msa 断网接口，只做了挂起）"
-                        else:
-                            extra = "；部分完成：" + network["reason"]
-                            fail += 1
-                    print(f"  {p}：已挂起{extra}")
-                else:
-                    fail += 1
-                    print(f"  {p}：挂起失败（{(out.splitlines() or ['系统没给原因'])[-1][:160]}）")
-        if fail:
-            sys.exit(1)
-
-    elif cmd == "unsuspend":
-        pk = rest
-        if not pk:
-            f = os.path.join(latest_backup(s), "suspended.txt")
-            pk = sorted(set(open(f, encoding="utf-8").read().split())) if os.path.exists(f) else []
-        failures = 0
-        for p in pk:
-            sh(s, f"pm unsuspend --user 0 {p}")
-            extra = ""
-            if p == MSA:
-                network = msa_net(s, True)
-                if network["supported"] and not network["ok"]:
-                    failures += 1
-                    extra = "；联网还原失败：" + network["reason"]
-                elif not network["supported"]:
-                    extra = "；本机无 msa 断网接口，未更改联网设置"
-            still = suspended(s, p)
-            failures += still
-            print(p, ("解除挂起失败" if still else "已恢复挂起状态") + extra)
-        if failures:
-            sys.exit(1)
-
-    elif cmd == "quickapp":
-        sub = rest[0] if rest else "check"
-        qs = quickapps(s)
-        if not qs:
-            print("没有检测到快应用组件。"); return
-        if sub == "check":
-            print(f"检测到 {len(qs)} 个快应用组件：")
-            for q in qs:
-                if q["keep"]:
-                    note = "  （保留：%s）" % QUICKAPP_KEEP[q["pkg"]]
-                elif q["method"] == "setting":
-                    note = "  （系统服务开关）"
-                else:
-                    note = "" if q["tested"] else "  （这个包的挂起效果还没实测）"
-                print(f"  {q['name']:<10} {q['pkg']:<34} {'已关闭' if q['closed'] else '未关闭'}  "
-                      f"{'后台在跑' if q['running'] else '没在跑'}  "
-                      f"{'近期打开过 %d 次' % q['used'] if q['used'] else '近期没打开过'}"
-                      f"{note}")
-            h = sh(s, "pm query-activities --brief -a android.intent.action.VIEW -d hap://app/x")
-            who = re.findall(r"^\s*(\S+/\S+)$", h, re.M)
-            if [q for q in qs if not q["closed"] and not q["keep"]]:
-                if who:
-                    print(f"hap:// 链接由 {who[0]} 接管：网页或 App 里的广告可以用这类链接跳进快应用。")
-                print("关闭：python3 tool/run.py -s %s quickapp off（要机主同意，可还原）" % s)
-            else:
-                print("可挂起的快应用组件已关闭（保留项除外）；恢复：quickapp on")
-                if who:
-                    # 保留平台就等于留着 hap:// 入口，不能写成广告已拦下
-                    print(f"hap:// 链接仍由 {who[0]} 接管（保留项）：广告仍可能跳进快应用。")
-        elif sub == "off":
-            todo = [q["pkg"] for q in qs if not q["closed"] and q["method"] == "suspend" and not q["keep"]]
-            why = {}
-            for q in qs:
-                if q["keep"]:
-                    print(f"  保留 {q['name']}（{q['pkg']}）：{QUICKAPP_KEEP[q['pkg']]}")
-                elif q["method"] == "setting":
-                    try:
-                        print(set_quickapp_service(s))
-                    except (RuntimeError, OSError, ValueError) as e:
-                        why[q["pkg"]] = str(e)
-            for p in todo:
-                why[p] = sh_all(s, f"pm suspend --user 0 {p}")
-                if suspended(s, p):
-                    sh(s, f"am force-stop --user 0 {p}")
-            done = [p for p in todo if suspended(s, p)]
-            record(s, done)
-            after = quickapps(s)
-            bad = []
-            for q in after:
-                if q["keep"]:
-                    print(f"  {q['name']:<10} {q['pkg']:<34} 保留（不挂起）")
-                    continue
-                ok = q["closed"]
-                reason = "" if ok else "（" + ((why.get(q["pkg"]) or "").splitlines() or ["系统没给原因"])[-1][:160] + "）"
-                print(f"  {q['name']:<10} {q['pkg']:<34} {'已关闭' if ok else '关闭失败' + reason}")
-                if not ok:
-                    bad.append(q)
-            if not bad:
-                print("快应用组件已关闭（保留项除外）。请按常用入口核对效果；恢复：quickapp on")
-                if any(q["keep"] and not q["closed"] for q in after):
-                    print("保留项仍接管 hap:// 链接：广告仍可能跳进快应用。")
-            else:
-                # Issue #7：vivo 的快应用挂起被系统拒绝。如实报失败，不说「已关闭」
-                print(f"有 {len(bad)} 个快应用组件关闭失败。可以在手机上检查快应用服务开关，或仅关掉它的通知："
-                      "设置 → 通知 → 找到「" + "」「".join(q["name"] for q in bad) + "」→ 关掉「允许通知」。")
-                sys.exit(1)
-        elif sub == "on":
-            failures = 0
-            for q in qs:
-                if q["method"] == "setting":
-                    try:
-                        print(set_quickapp_service(s, restore=True))
-                    except (RuntimeError, OSError, ValueError) as e:
-                        print(f"  ✗ {e}"); failures += 1
-                if q["suspended"]:
-                    sh(s, f"pm unsuspend --user 0 {q['pkg']}")
-                    failed = suspended(s, q['pkg'])
-                    failures += failed
-                    print(f"  {q['name']}: {'还原挂起失败' if failed else '已解除挂起'}")
-            if failures:
-                sys.exit(1)
-        else:
-            sys.exit("quickapp 后面跟 check / off / on")
-
-    elif cmd == "finish":
-        f = os.path.join(latest_backup(s), "stay_on.txt")
-        v = open(f, encoding="utf-8").read().strip() if os.path.exists(f) else "0"
-        sh(s, f"settings put global stay_on_while_plugged_in {v or 0}")
-        sh(s, "input keyevent HOME")
-        print(f"插电常亮已改回 {v or 0}")
-        on = sh(s, "settings get global development_settings_enabled") == "1"
-        if on:
-            msg = DEV_REMINDER.format(s=s)
-            if os.environ.get("AAC_GUI"):
-                msg = msg.replace(f"2) 电脑上：python3 tool/run.py -s {s} dev-off --yes", "2) 电脑上：点客户端完成页的「帮我关闭」")
-            print(msg)
-
-    elif cmd == "status-json":
-        import json
-        i = info(s); r, ref = recipe_for(i["model"], i["brand"], i); steps, rb, ok = [], "", True
-        if r:
-            meta = recipe_meta(r)
-            steps, rb = meta["steps"], meta["build"]
-            ok = (not ref) and build_ok(i, rb)
-        ads = [{"pkg": p, "suspended": suspended(s, p)} for p in ad_packages(i["brand"]) if installed(s, p)]
-        backup = Backups(BACKUPS).latest(i["model"])
-        print(json.dumps({
-            "info": i, "locked": locked(s),
-            "recipe": os.path.relpath(r, ROOT) if r else None, "recipe_ref": ref, "recipe_build": rb, "recipe_ok": ok, "steps": steps,
-            "ads": ads, "quickapps": quickapps(s),
-            "stay_on": sh(s, "settings get global stay_on_while_plugged_in"),
-            "dev": sh(s, "settings get global development_settings_enabled") == "1",
-            "backup": os.path.relpath(backup, BACKUPS) if backup else None,
-            "fold_open": fold_open(s),
-            "input_blocked": input_blocked(s, i["brand"]),
-        }, ensure_ascii=False))
-
-    elif cmd == "dev-off":
-        if "--yes" not in rest:
-            sys.exit("这一步会关闭开发者模式和 USB 调试，电脑随后与手机断开。确认后加 --yes 再执行")
-        print("正在关闭开发者模式……执行后电脑会和手机断开，这是正常的。")
-        sh(s, "settings put global adb_wifi_enabled 0; settings put global development_settings_enabled 0; "
-              "settings put global adb_enabled 0")
-        print("已发出关闭指令。请在手机上打开 设置 → 搜索「开发者选项」，确认总开关是关着的。")
+def cmd_check(serial, rest):
+    i = info(serial); r, ref = recipe_for(i["model"], i["brand"], i)
+    print(f"机型：{i['name'] if i['name'].upper().startswith(i['brand'].upper()) else i['brand']+' '+i['name']}（{i['model']}），系统 {i['build']}，Android {i['android']}")
+    print(f"锁屏：{'是（请机主解锁）' if locked(serial) else '否'}")
+    if input_blocked(serial, i["brand"]):
+        print("电脑点击：被系统拒绝。" + troubleshooting.XIAOMI_INPUT)
+    if r and ref:
+        print(f"机型脚本：本型号没有；同品牌参考 {os.path.relpath(r, ROOT)}。要用：recipe --ref（安全模式：只关脚本里点名的开关，找不到就跳过）")
+    elif r:
+        rb = recipe_meta(r)["build"]
+        ok = build_ok(i, rb)
+        print(f"机型脚本：{os.path.relpath(r, ROOT)}；录制版本 {rb or '未标'}，{'版本一致' if ok else '版本不同：用安全模式跑，部分步骤可能找不到入口'}")
     else:
-        print(__doc__)
+        print("机型脚本：没有。可跑：通知渠道 chan-scan/chan-off、广告包挂起；其余照 docs/清单 手动做，或用 tool/explore.py 探路")
+    for p in ad_packages(i["brand"]):
+        exists = "package:" in sh(serial, f"pm path {p}")
+        print(f"  广告包 {p}：{'未安装' if not exists else ('已挂起' if suspended(serial, p) else '未挂起')}")
+    for q in quickapps(serial):
+        print(f"  快应用 {q['pkg']}（{q['name']}）：{'已关闭' if q['closed'] else '未关闭'}"
+              f"（{'系统服务开关' if q['method'] == 'setting' else '挂起状态'}）")
+    print(f"插电常亮：{sh(serial, 'settings get global stay_on_while_plugged_in')}")
+    return 0
+
+
+def cmd_backup(serial, rest):
+    # 先探活再建目录：读不到包列表时不留半成品快照（后续步骤会把最新目录当成改动前的快照）。
+    # 带过滤参数的清单可以合法为空，只有不带参数的完整清单不可能为空。
+    probe = pkg_list(serial)
+    if not re.search(r"(?m)^package:", probe):
+        detail = f"；手机返回：{probe[-180:]}" if probe else ""
+        return fail(f"✗ 读不到包列表（pm list 与 cmd package list 都没有包名），未生成快照{detail}")
+    d = latest_backup(serial, create=True)
+    Path(d, "info.txt").write_text("\n".join(f"{k}={v}" for k, v in info(serial).items()), encoding="utf-8")
+    for name, args in (("sys.txt", "--user 0 -s"), ("user.txt", "--user 0 -3"), ("disabled.txt", "--user 0 -d")):
+        Path(d, name).write_text(pkg_list(serial, args), encoding="utf-8")
+    Path(d, "notif.txt").write_text(sh(serial, "dumpsys notification --noredact"), encoding="utf-8")
+    st = "\n".join(f"## {n}\n" + sh(serial, f"settings list {n}") for n in ("system", "secure", "global"))
+    Path(d, "settings-before.txt").write_text(st, encoding="utf-8")
+    Path(d, "stay_on.txt").write_text(sh(serial, "settings get global stay_on_while_plugged_in"), encoding="utf-8")
+    print(f"快照已存：{display_backup_path(d)}")
+    return 0
+
+
+def cmd_recipe(serial, rest):
+    i = info(serial); r, ref = recipe_for(i["model"], i["brand"], i)
+    use_ref = "--ref" in rest
+    rest = [x for x in rest if x != "--ref"]
+    if not r or (ref and not use_ref):
+        return fail("这个型号没有机型脚本。" + (f"同品牌有参考脚本 {os.path.relpath(r, ROOT)}，加 --ref 试用。" if r else "") +
+                    "写法见 docs/04-给新机型写脚本.md")
+    safe_mode = bool(ref or not build_ok(i, recipe_meta(r)["build"]))
+    if safe_mode:
+        print("⚠ 安全模式：这份机型脚本不是按这台的型号和系统版本录的。只关脚本里点名的开关，找不到入口的步骤跳过。")
+    stay_on = sh(serial, "settings get global stay_on_while_plugged_in")
+    try:
+        sh(serial, "settings put global stay_on_while_plugged_in 7")
+        if not wait_unlocked(serial):
+            return fail("✗ 手机一直锁屏，本步骤没有执行。请解锁手机、保持亮屏后重试")
+        return py("fast.py", "-s", serial, "run", r, *(["--ref"] if safe_mode else []), *rest)
+    finally:
+        sh(serial, f"settings put global stay_on_while_plugged_in {int(stay_on) if stay_on.isdigit() else 0}")
+
+
+def cmd_chan_scan(serial, rest):
+    d = latest_backup(serial)
+    result = subprocess.run(script_cmd("chan_fast.py", "-s", serial, "scan"),
+                            capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if result.returncode:
+        print(result.stderr or result.stdout, file=sys.stderr)
+        return result.returncode
+    out = result.stdout
+    f = os.path.join(d, "channels.tsv")
+    Path(f).write_text(
+        "# 包名\t渠道id\t渠道名\t应用名。人工核对：删掉服务类（热点共享、红包、防盗、直播提醒等）后再 chan-off\n" + out, encoding="utf-8")
+    print(out); print(f"候选清单：{display_backup_path(f)}（共 {out.count(chr(10))} 条）")
+    return 0
+
+
+def chan(serial, rest, action):
+    if not rest:
+        return fail("要给清单文件，比如 backups/<型号>-<时间>/channels.tsv")
+    return py("chan_fast.py", "-s", serial, action, rest[0])
+
+
+def cmd_chan_off(serial, rest):
+    return chan(serial, rest, "off")
+
+
+def cmd_chan_on(serial, rest):
+    return chan(serial, rest, "on")
+
+
+def cmd_suspend(serial, rest):
+    bad = [p for p in rest if p in NEVER]
+    if bad:
+        return fail(f"这些包挂了会坏功能，不挂：{bad}")
+    d = latest_backup(serial)
+    failures = 0
+    with open(os.path.join(d, "suspended.txt"), "a", encoding="utf-8") as f:
+        for p in rest:
+            out = sh_all(serial, f"pm suspend --user 0 {p}")
+            if suspended(serial, p):
+                f.write(p + "\n")
+                extra = ""
+                if p == MSA:
+                    sh(serial, f"am force-stop {p}")
+                    network = msa_net(serial, False)
+                    if network["ok"]:
+                        extra = "，已禁止联网"
+                    elif not network["supported"]:
+                        # 系统没有这个接口，用户也改不了：挂起已完成，不算失败（错误日志 10-27，7 份报告）
+                        extra = "（这台手机的系统没有 msa 断网接口，只做了挂起）"
+                    else:
+                        extra = "；部分完成：" + network["reason"]
+                        failures += 1
+                print(f"  {p}：已挂起{extra}")
+            else:
+                failures += 1
+                print(f"  {p}：挂起失败（{(out.splitlines() or ['系统没给原因'])[-1][:160]}）")
+    return 1 if failures else 0
+
+
+def cmd_unsuspend(serial, rest):
+    pk = rest
+    if not pk:
+        f = os.path.join(latest_backup(serial), "suspended.txt")
+        pk = sorted(set(open(f, encoding="utf-8").read().split())) if os.path.exists(f) else []
+    failures = 0
+    for p in pk:
+        sh(serial, f"pm unsuspend --user 0 {p}")
+        extra = ""
+        if p == MSA:
+            network = msa_net(serial, True)
+            if network["supported"] and not network["ok"]:
+                failures += 1
+                extra = "；联网还原失败：" + network["reason"]
+            elif not network["supported"]:
+                extra = "；本机无 msa 断网接口，未更改联网设置"
+        still = suspended(serial, p)
+        failures += still
+        print(p, ("解除挂起失败" if still else "已恢复挂起状态") + extra)
+    return 1 if failures else 0
+
+
+def cmd_quickapp(serial, rest):
+    sub = rest[0] if rest else "check"
+    qs = quickapps(serial)
+    if not qs:
+        print("没有检测到快应用组件。"); return 0
+    if sub == "check":
+        print(f"检测到 {len(qs)} 个快应用组件：")
+        for q in qs:
+            if q["keep"]:
+                note = "  （保留：%s）" % QUICKAPP_KEEP[q["pkg"]]
+            elif q["method"] == "setting":
+                note = "  （系统服务开关）"
+            else:
+                note = "" if q["tested"] else "  （这个包的挂起效果还没实测）"
+            print(f"  {q['name']:<10} {q['pkg']:<34} {'已关闭' if q['closed'] else '未关闭'}  "
+                  f"{'后台在跑' if q['running'] else '没在跑'}  "
+                  f"{'近期打开过 %d 次' % q['used'] if q['used'] else '近期没打开过'}"
+                  f"{note}")
+        h = sh(serial, "pm query-activities --brief -a android.intent.action.VIEW -d hap://app/x")
+        who = re.findall(r"^\s*(\S+/\S+)$", h, re.M)
+        if [q for q in qs if not q["closed"] and not q["keep"]]:
+            if who:
+                print(f"hap:// 链接由 {who[0]} 接管：网页或 App 里的广告可以用这类链接跳进快应用。")
+            print("关闭：python3 tool/run.py -s %s quickapp off（要机主同意，可还原）" % serial)
+        else:
+            print("可挂起的快应用组件已关闭（保留项除外）；恢复：quickapp on")
+            if who:
+                # 保留平台就等于留着 hap:// 入口，不能写成广告已拦下
+                print(f"hap:// 链接仍由 {who[0]} 接管（保留项）：广告仍可能跳进快应用。")
+        return 0
+    if sub == "off":
+        todo = [q["pkg"] for q in qs if not q["closed"] and q["method"] == "suspend" and not q["keep"]]
+        why = {}
+        for q in qs:
+            if q["keep"]:
+                print(f"  保留 {q['name']}（{q['pkg']}）：{QUICKAPP_KEEP[q['pkg']]}")
+            elif q["method"] == "setting":
+                try:
+                    print(set_quickapp_service(serial))
+                except (RuntimeError, OSError, ValueError) as e:
+                    why[q["pkg"]] = str(e)
+        for p in todo:
+            why[p] = sh_all(serial, f"pm suspend --user 0 {p}")
+            if suspended(serial, p):
+                sh(serial, f"am force-stop --user 0 {p}")
+        done = [p for p in todo if suspended(serial, p)]
+        record(serial, done)
+        after = quickapps(serial)
+        bad = []
+        for q in after:
+            if q["keep"]:
+                print(f"  {q['name']:<10} {q['pkg']:<34} 保留（不挂起）")
+                continue
+            ok = q["closed"]
+            reason = "" if ok else "（" + ((why.get(q["pkg"]) or "").splitlines() or ["系统没给原因"])[-1][:160] + "）"
+            print(f"  {q['name']:<10} {q['pkg']:<34} {'已关闭' if ok else '关闭失败' + reason}")
+            if not ok:
+                bad.append(q)
+        if not bad:
+            print("快应用组件已关闭（保留项除外）。请按常用入口核对效果；恢复：quickapp on")
+            if any(q["keep"] and not q["closed"] for q in after):
+                print("保留项仍接管 hap:// 链接：广告仍可能跳进快应用。")
+            return 0
+        # Issue #7：vivo 的快应用挂起被系统拒绝。如实报失败，不说「已关闭」
+        print(f"有 {len(bad)} 个快应用组件关闭失败。可以在手机上检查快应用服务开关，或仅关掉它的通知："
+              "设置 → 通知 → 找到「" + "」「".join(q["name"] for q in bad) + "」→ 关掉「允许通知」。")
+        return 1
+    if sub == "on":
+        failures = 0
+        for q in qs:
+            if q["method"] == "setting":
+                try:
+                    print(set_quickapp_service(serial, restore=True))
+                except (RuntimeError, OSError, ValueError) as e:
+                    print(f"  ✗ {e}"); failures += 1
+            if q["suspended"]:
+                sh(serial, f"pm unsuspend --user 0 {q['pkg']}")
+                failed = suspended(serial, q['pkg'])
+                failures += failed
+                print(f"  {q['name']}: {'还原挂起失败' if failed else '已解除挂起'}")
+        return 1 if failures else 0
+    return fail("quickapp 后面跟 check / off / on")
+
+
+def cmd_finish(serial, rest):
+    f = os.path.join(latest_backup(serial), "stay_on.txt")
+    v = open(f, encoding="utf-8").read().strip() if os.path.exists(f) else "0"
+    sh(serial, f"settings put global stay_on_while_plugged_in {v or 0}")
+    sh(serial, "input keyevent HOME")
+    print(f"插电常亮已改回 {v or 0}")
+    on = sh(serial, "settings get global development_settings_enabled") == "1"
+    if on:
+        msg = DEV_REMINDER.format(s=serial)
+        if os.environ.get("AAC_GUI"):
+            msg = msg.replace(f"2) 电脑上：python3 tool/run.py -s {serial} dev-off --yes", "2) 电脑上：点客户端完成页的「帮我关闭」")
+        print(msg)
+    return 0
+
+
+def cmd_status_json(serial, rest):
+    i = info(serial); r, ref = recipe_for(i["model"], i["brand"], i); steps, rb, ok = [], "", True
+    if r:
+        meta = recipe_meta(r)
+        steps, rb = meta["steps"], meta["build"]
+        ok = (not ref) and build_ok(i, rb)
+    ads = [{"pkg": p, "suspended": suspended(serial, p)} for p in ad_packages(i["brand"]) if installed(serial, p)]
+    backup = Backups(BACKUPS).latest(i["model"])
+    print(json.dumps({
+        "info": i, "locked": locked(serial),
+        "recipe": os.path.relpath(r, ROOT) if r else None, "recipe_ref": ref, "recipe_build": rb, "recipe_ok": ok, "steps": steps,
+        "ads": ads, "quickapps": quickapps(serial),
+        "stay_on": sh(serial, "settings get global stay_on_while_plugged_in"),
+        "dev": sh(serial, "settings get global development_settings_enabled") == "1",
+        "backup": os.path.relpath(backup, BACKUPS) if backup else None,
+        "fold_open": fold_open(serial),
+        "input_blocked": input_blocked(serial, i["brand"]),
+    }, ensure_ascii=False))
+    return 0
+
+
+def cmd_dev_off(serial, rest):
+    if "--yes" not in rest:
+        return fail("这一步会关闭开发者模式和 USB 调试，电脑随后与手机断开。确认后加 --yes 再执行")
+    print("正在关闭开发者模式……执行后电脑会和手机断开，这是正常的。")
+    sh(serial, "settings put global adb_wifi_enabled 0; settings put global development_settings_enabled 0; "
+               "settings put global adb_enabled 0")
+    print("已发出关闭指令。请在手机上打开 设置 → 搜索「开发者选项」，确认总开关是关着的。")
+    return 0
+
+
+COMMANDS = {
+    "ui-check": cmd_ui_check,
+    "check": cmd_check,
+    "backup": cmd_backup,
+    "recipe": cmd_recipe,
+    "chan-scan": cmd_chan_scan,
+    "chan-off": cmd_chan_off,
+    "chan-on": cmd_chan_on,
+    "suspend": cmd_suspend,
+    "unsuspend": cmd_unsuspend,
+    "quickapp": cmd_quickapp,
+    "finish": cmd_finish,
+    "status-json": cmd_status_json,
+    "dev-off": cmd_dev_off,
+}
+
+
+def dispatch(a):
+    if not a or a[0] in ("-h", "--help"):
+        print(__doc__); return 0
+    if a[0] == "devices":
+        return cmd_devices(a[1:])
+    if a[0] != "-s" or len(a) < 3:
+        return fail("命令格式：run.py -s <序列号> <命令>。先跑 run.py devices 看序列号")
+    # 以前 adb 在 import 期就解析、找不到当场退出；这里保留同样的先后：先确认 adb，再碰命令。
+    adb()
+    handler = COMMANDS.get(a[2])
+    if handler is None:
+        print(__doc__); return 0
+    return handler(a[1], a[3:])
+
+
+def main(argv=None):
+    """唯一出口：命令只返回退出码，断线与「找不到 adb」在这里变成文案 + 退出码 1。"""
+    try:
+        return dispatch(list(sys.argv[1:] if argv is None else argv))
+    except (adb_link.DeviceLost, NoAdb) as error:
+        return fail(str(error))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

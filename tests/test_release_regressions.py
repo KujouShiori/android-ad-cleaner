@@ -131,9 +131,7 @@ class MsaTests(unittest.TestCase):
              patch.object(run, "msa_net", return_value={"ok": False, "supported": True, "reason": "系统拒绝"}), \
              patch.object(sys, "argv", ["run.py", "-s", "test", "suspend", run.MSA]), \
              contextlib.redirect_stdout(io.StringIO()) as output:
-            with self.assertRaises(SystemExit) as raised:
-                run.main()
-            self.assertEqual(raised.exception.code, 1)
+            self.assertEqual(run.main(), 1)
             self.assertIn("部分完成", output.getvalue())
             self.assertIn(run.MSA, Path(directory, "suspended.txt").read_text())
 

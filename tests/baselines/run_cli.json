@@ -1,0 +1,159 @@
+{
+  "provenance": {
+    "baseline": "e319126",
+    "how": "git archive <sha> | tar -x -C /tmp/aac-base && .venv/bin/python tests/make_run_cli_baseline.py /tmp/aac-base <sha>",
+    "cases": 30
+  },
+  "cases": {
+    "devices-有设备": {
+      "rc": 0,
+      "stdout": "S\tXiaomi 13\tM154FF\tOS1.0.1.0\t机型脚本：recipes/xiaomi-M154FF/recipe.py\n",
+      "stderr": ""
+    },
+    "devices-没有设备": {
+      "rc": 0,
+      "stdout": "没有连着的手机。检查数据线、USB 调试，见 docs/01-准备工作.md\n",
+      "stderr": ""
+    },
+    "check-成功": {
+      "rc": 0,
+      "stdout": "机型：Xiaomi 13（M154FF），系统 OS1.0.1.0，Android 13\n锁屏：否\n机型脚本：recipes/xiaomi-M154FF/recipe.py；录制版本 OS4.0，版本不同：用安全模式跑，部分步骤可能找不到入口\n  广告包 com.miui.systemAdSolution：未挂起\n插电常亮：0\n",
+      "stderr": ""
+    },
+    "check-断线": {
+      "rc": 1,
+      "stdout": "",
+      "stderr": "手机和电脑的 adb 连接断开了，本步骤没有完成。请逐项排查后重试：\n· 退出电脑上的手机助手类软件（各品牌手机助手、应用宝、360 手机助手、豌豆荚、爱思助手、刷机工具）和安卓模拟器。它们自带另一个版本的 adb，会和本工具抢连接\n· 换原装或可传数据的线，直接插电脑接口，不经过扩展坞或 USB Hub\n· 看手机有没有弹出 USB 用途选择或「允许 USB 调试」授权框\n· 用无线调试时，手机息屏或换网络后端口会变，要重新连接\n原始错误：adb: device 'S' not found\n"
+    },
+    "backup-成功": {
+      "rc": 0,
+      "stdout": "快照已存：<TMP>/backups/M154FF-<TS>\n",
+      "stderr": ""
+    },
+    "backup-包列表读不到": {
+      "rc": 1,
+      "stdout": "",
+      "stderr": "✗ 读不到包列表（pm list 与 cmd package list 都没有包名），未生成快照\n"
+    },
+    "backup-断线": {
+      "rc": 1,
+      "stdout": "",
+      "stderr": "手机和电脑的 adb 连接断开了，本步骤没有完成。请逐项排查后重试：\n· 退出电脑上的手机助手类软件（各品牌手机助手、应用宝、360 手机助手、豌豆荚、爱思助手、刷机工具）和安卓模拟器。它们自带另一个版本的 adb，会和本工具抢连接\n· 换原装或可传数据的线，直接插电脑接口，不经过扩展坞或 USB Hub\n· 看手机有没有弹出 USB 用途选择或「允许 USB 调试」授权框\n· 用无线调试时，手机息屏或换网络后端口会变，要重新连接\n原始错误：adb: device 'S' not found\n"
+    },
+    "recipe-没有机型脚本": {
+      "rc": 1,
+      "stdout": "",
+      "stderr": "这个型号没有机型脚本。同品牌有参考脚本 recipes/xiaomi-M154FF/recipe.py，加 --ref 试用。写法见 docs/04-给新机型写脚本.md\n"
+    },
+    "suspend-成功": {
+      "rc": 0,
+      "stdout": "  com.example.ad：已挂起\n",
+      "stderr": ""
+    },
+    "suspend-挂起失败": {
+      "rc": 1,
+      "stdout": "  com.example.ad：挂起失败（Error: not allowed）\n",
+      "stderr": ""
+    },
+    "suspend-禁止包": {
+      "rc": 1,
+      "stdout": "",
+      "stderr": "这些包挂了会坏功能，不挂：['com.android.systemui']\n"
+    },
+    "suspend-断线": {
+      "rc": 1,
+      "stdout": "",
+      "stderr": "手机和电脑的 adb 连接断开了，本步骤没有完成。请逐项排查后重试：\n· 退出电脑上的手机助手类软件（各品牌手机助手、应用宝、360 手机助手、豌豆荚、爱思助手、刷机工具）和安卓模拟器。它们自带另一个版本的 adb，会和本工具抢连接\n· 换原装或可传数据的线，直接插电脑接口，不经过扩展坞或 USB Hub\n· 看手机有没有弹出 USB 用途选择或「允许 USB 调试」授权框\n· 用无线调试时，手机息屏或换网络后端口会变，要重新连接\n原始错误：adb: device 'S' not found\n"
+    },
+    "unsuspend-按记录还原": {
+      "rc": 0,
+      "stdout": "com.example.ad 已恢复挂起状态\n",
+      "stderr": ""
+    },
+    "unsuspend-还原失败": {
+      "rc": 1,
+      "stdout": "com.example.ad 解除挂起失败\n",
+      "stderr": ""
+    },
+    "unsuspend-断线": {
+      "rc": 1,
+      "stdout": "",
+      "stderr": "手机和电脑的 adb 连接断开了，本步骤没有完成。请逐项排查后重试：\n· 退出电脑上的手机助手类软件（各品牌手机助手、应用宝、360 手机助手、豌豆荚、爱思助手、刷机工具）和安卓模拟器。它们自带另一个版本的 adb，会和本工具抢连接\n· 换原装或可传数据的线，直接插电脑接口，不经过扩展坞或 USB Hub\n· 看手机有没有弹出 USB 用途选择或「允许 USB 调试」授权框\n· 用无线调试时，手机息屏或换网络后端口会变，要重新连接\n原始错误：adb: device 'S' not found\n"
+    },
+    "quickapp-没有组件": {
+      "rc": 0,
+      "stdout": "没有检测到快应用组件。\n",
+      "stderr": ""
+    },
+    "quickapp-off-成功": {
+      "rc": 0,
+      "stdout": "  保留 快应用平台（com.nearme.instant.platform）：快应用平台主框架，负一屏快递助手等系统卡片依赖它，挂起后详情页打不开\n  快应用平台      com.nearme.instant.platform        保留（不挂起）\n  快应用本地服务    com.oppo.instant.local.service     已关闭\n快应用组件已关闭（保留项除外）。请按常用入口核对效果；恢复：quickapp on\n",
+      "stderr": ""
+    },
+    "quickapp-off-有失败": {
+      "rc": 1,
+      "stdout": "  保留 快应用平台（com.nearme.instant.platform）：快应用平台主框架，负一屏快递助手等系统卡片依赖它，挂起后详情页打不开\n  快应用平台      com.nearme.instant.platform        保留（不挂起）\n  快应用本地服务    com.oppo.instant.local.service     关闭失败（Error: not allowed）\n有 1 个快应用组件关闭失败。可以在手机上检查快应用服务开关，或仅关掉它的通知：设置 → 通知 → 找到「快应用本地服务」→ 关掉「允许通知」。\n",
+      "stderr": ""
+    },
+    "quickapp-on-还原": {
+      "rc": 0,
+      "stdout": "  快应用平台: 已解除挂起\n  快应用本地服务: 已解除挂起\n",
+      "stderr": ""
+    },
+    "quickapp-未知子命令": {
+      "rc": 1,
+      "stdout": "",
+      "stderr": "quickapp 后面跟 check / off / on\n"
+    },
+    "quickapp-断线": {
+      "rc": 1,
+      "stdout": "",
+      "stderr": "手机和电脑的 adb 连接断开了，本步骤没有完成。请逐项排查后重试：\n· 退出电脑上的手机助手类软件（各品牌手机助手、应用宝、360 手机助手、豌豆荚、爱思助手、刷机工具）和安卓模拟器。它们自带另一个版本的 adb，会和本工具抢连接\n· 换原装或可传数据的线，直接插电脑接口，不经过扩展坞或 USB Hub\n· 看手机有没有弹出 USB 用途选择或「允许 USB 调试」授权框\n· 用无线调试时，手机息屏或换网络后端口会变，要重新连接\n原始错误：adb: device 'S' not found\n"
+    },
+    "finish-成功": {
+      "rc": 0,
+      "stdout": "插电常亮已改回 7\n\n================ 最后一步：关闭开发者模式 ================\n收尾不代表每一步都成功，请先核对执行结果。若不再继续排查或重试，建议关闭开发者模式和 USB 调试：\n  · 部分银行、支付、游戏 App 检测到 USB 调试开着会提醒或拒绝运行\n  · 关掉以后，别人拿你的手机插电脑也连不上\n\n两种关法，选一种：\n  1) 手机上：设置 → 搜索「开发者选项」→ 关掉页面最上方的总开关\n  2) 电脑上：python3 tool/run.py -s S dev-off --yes\n     （执行后电脑和手机断开，这是正常的）\n\n关掉开发者模式不会撤销这次的改动：关掉的开关、挂起的包、关掉的通知都保持原样。\n以后要还原挂起的包，重新打开开发者模式和 USB 调试即可（见 docs/00-打开开发者模式.md）。\n==========================================================\n\n",
+      "stderr": ""
+    },
+    "finish-断线": {
+      "rc": 1,
+      "stdout": "",
+      "stderr": "手机和电脑的 adb 连接断开了，本步骤没有完成。请逐项排查后重试：\n· 退出电脑上的手机助手类软件（各品牌手机助手、应用宝、360 手机助手、豌豆荚、爱思助手、刷机工具）和安卓模拟器。它们自带另一个版本的 adb，会和本工具抢连接\n· 换原装或可传数据的线，直接插电脑接口，不经过扩展坞或 USB Hub\n· 看手机有没有弹出 USB 用途选择或「允许 USB 调试」授权框\n· 用无线调试时，手机息屏或换网络后端口会变，要重新连接\n原始错误：adb: device 'S' not found\n"
+    },
+    "status-json-成功": {
+      "rc": 0,
+      "stdout": "{\"info\": {\"brand\": \"Xiaomi\", \"model\": \"M154FF\", \"name\": \"Xiaomi 13\", \"build\": \"OS1.0.1.0\", \"os\": \"OS1.0.1.0\", \"android\": \"13\"}, \"locked\": false, \"recipe\": \"recipes/xiaomi-M154FF/recipe.py\", \"recipe_ref\": false, \"recipe_build\": \"OS4.0\", \"recipe_ok\": false, \"steps\": [\"系统广告\", \"应用商店\", \"手机管家\", \"下载管理\", \"主题\", \"浏览器\", \"全局搜索\", \"负一屏\", \"天气和日历\"], \"ads\": [{\"pkg\": \"com.miui.systemAdSolution\", \"suspended\": false}], \"quickapps\": [], \"stay_on\": \"0\", \"dev\": false, \"backup\": null, \"fold_open\": false, \"input_blocked\": false}\n",
+      "stderr": ""
+    },
+    "status-json-断线": {
+      "rc": 1,
+      "stdout": "",
+      "stderr": "手机和电脑的 adb 连接断开了，本步骤没有完成。请逐项排查后重试：\n· 退出电脑上的手机助手类软件（各品牌手机助手、应用宝、360 手机助手、豌豆荚、爱思助手、刷机工具）和安卓模拟器。它们自带另一个版本的 adb，会和本工具抢连接\n· 换原装或可传数据的线，直接插电脑接口，不经过扩展坞或 USB Hub\n· 看手机有没有弹出 USB 用途选择或「允许 USB 调试」授权框\n· 用无线调试时，手机息屏或换网络后端口会变，要重新连接\n原始错误：adb: device 'S' not found\n"
+    },
+    "dev-off-缺确认": {
+      "rc": 1,
+      "stdout": "",
+      "stderr": "这一步会关闭开发者模式和 USB 调试，电脑随后与手机断开。确认后加 --yes 再执行\n"
+    },
+    "dev-off-成功": {
+      "rc": 0,
+      "stdout": "正在关闭开发者模式……执行后电脑会和手机断开，这是正常的。\n已发出关闭指令。请在手机上打开 设置 → 搜索「开发者选项」，确认总开关是关着的。\n",
+      "stderr": ""
+    },
+    "dev-off-断线": {
+      "rc": 1,
+      "stdout": "正在关闭开发者模式……执行后电脑会和手机断开，这是正常的。\n",
+      "stderr": "手机和电脑的 adb 连接断开了，本步骤没有完成。请逐项排查后重试：\n· 退出电脑上的手机助手类软件（各品牌手机助手、应用宝、360 手机助手、豌豆荚、爱思助手、刷机工具）和安卓模拟器。它们自带另一个版本的 adb，会和本工具抢连接\n· 换原装或可传数据的线，直接插电脑接口，不经过扩展坞或 USB Hub\n· 看手机有没有弹出 USB 用途选择或「允许 USB 调试」授权框\n· 用无线调试时，手机息屏或换网络后端口会变，要重新连接\n原始错误：adb: device 'S' not found\n"
+    },
+    "格式错": {
+      "rc": 1,
+      "stdout": "",
+      "stderr": "命令格式：run.py -s <序列号> <命令>。先跑 run.py devices 看序列号\n"
+    },
+    "未知命令": {
+      "rc": 0,
+      "stdout": "手机去广告 · 总入口。所有命令都要带 -s <序列号>（adb devices 第一列）。\n\npython3 tool/run.py devices                      列出连着的手机、型号、系统版本、有没有现成机型脚本\npython3 tool/run.py -s 序列号 check              只读：锁屏、机型脚本匹配、广告包挂起状态\npython3 tool/run.py -s 序列号 ui-check           只读：检查手机读屏服务，不点击任何开关\npython3 tool/run.py -s 序列号 backup             改动前快照，存到 backups/<型号>-<时间>/\npython3 tool/run.py -s 序列号 recipe [段名 …]     跑本机型机型脚本（不带段名=全跑）\npython3 tool/run.py -s 序列号 chan-scan          只读：列出开着的营销通知渠道 → backups/.../channels.tsv\npython3 tool/run.py -s 序列号 chan-off 清单.tsv   关掉清单里的渠道\npython3 tool/run.py -s 序列号 chan-on  清单.tsv   还原\npython3 tool/run.py -s 序列号 suspend 包名 …       挂起广告包（先征得机主同意），记录到 backups/.../suspended.txt\npython3 tool/run.py -s 序列号 unsuspend [包名 …]   解除挂起（不给包名=解除记录里的全部）\npython3 tool/run.py -s 序列号 quickapp          只读：检测快应用组件（装没装、挂没挂、在不在跑、用没用过）\npython3 tool/run.py -s 序列号 quickapp off      关闭快应用：挂起快应用组件（快递等系统服务依赖的框架自动保留；先征得机主同意）\npython3 tool/run.py -s 序列号 quickapp on       恢复快应用\npython3 tool/run.py -s 序列号 finish             收尾：插电常亮改回备份时的值，提醒关闭开发者模式\npython3 tool/run.py -s 序列号 dev-off --yes      从电脑上关闭开发者模式和 USB 调试（执行后电脑与手机断开）\npython3 tool/run.py -s 序列号 status-json        只读：一次输出全部状态（JSON，给图形界面用）\n\n",
+      "stderr": ""
+    }
+  }
+}

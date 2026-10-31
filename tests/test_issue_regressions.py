@@ -463,9 +463,7 @@ class BackupTests(unittest.TestCase):
                  patch.object(run.subprocess, "run", return_value=types.SimpleNamespace(returncode=1, stdout="", stderr="读取失败")), \
                  patch.object(sys, "argv", ["run.py", "-s", "test", "chan-scan"]), \
                  contextlib.redirect_stderr(io.StringIO()):
-                with self.assertRaises(SystemExit) as raised:
-                    run.main()
-            self.assertEqual(raised.exception.code, 1)
+                self.assertEqual(run.main(), 1)
             self.assertEqual(path.read_text(), "original-list")
 
     def test_package_backup_is_limited_to_owner(self):
@@ -600,10 +598,9 @@ class PackageListTests(unittest.TestCase):
              patch.object(run, "info", return_value={"model": "test"}), \
              patch.object(run, "sh", return_value=""), \
              patch.object(sys, "argv", ["run.py", "-s", "test", "backup"]), \
-             contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
-            with self.assertRaises(SystemExit) as raised:
-                run.main()
-            self.assertIn("读不到包列表", str(raised.exception.code))
+             contextlib.redirect_stderr(err := io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(run.main(), 1)
+            self.assertIn("读不到包列表", err.getvalue())
             # 失败时不留半成品快照：后续步骤会把最新目录当成「改动前的快照」。
             self.assertEqual(os.listdir(directory), [])
 

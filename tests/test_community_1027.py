@@ -409,10 +409,12 @@ class AdbLinkTests(unittest.TestCase):
     def test_sh_stops_with_hint_instead_of_returning_empty(self):
         # #147：以前读到空型号，备份目录成了「-时间」，后面几步还显示成功
         gone = subprocess.CompletedProcess([], 1, "", "adb: device 'S' not found")
-        with patch.object(run.subprocess, "run", return_value=gone), patch.object(adb_link, "wait_for", return_value=False):
-            with self.assertRaises(SystemExit) as raised:
+        with patch.object(run, "adb", return_value="/fake/adb"), \
+             patch.object(run.subprocess, "run", return_value=gone), patch.object(adb_link, "wait_for", return_value=False):
+            # ADR-0005：断线不再在 helper 里 sys.exit，而是抛出去由 main() 的出口渲染。
+            with self.assertRaises(adb_link.DeviceLost) as raised:
                 run.sh("S", "getprop ro.product.model")
-        self.assertIn("手机助手", str(raised.exception.code))
+        self.assertIn("手机助手", str(raised.exception))
 
     def test_engine_shell_waits_then_marks_lost(self):
         shell = Mock(side_effect=Exception("device 'S' not found"))
