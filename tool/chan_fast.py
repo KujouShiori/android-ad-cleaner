@@ -301,11 +301,38 @@ def titled(p, root, name):
 
 def top_title(p, root):
     """顶栏标题控件的文字（vivo：originui_vtoolbar_normal_title）。"""
-    for t, b, n in p.texts(root):
+    texts = p.texts(root)
+    for t, b, n in texts:
         rid = (n.get("resource-id") or "").lower()
         if "toolbar" in rid and "title" in rid and b[1] < p.H * 0.22:
             return t
-    return None
+    # Funtouch 13 的渠道页顶栏没有 resource-id（#336）：顶部 15% 里几乎横跨整屏的那段文字。
+    # 半屏宽的多半是行内标签（「允许通知」那一行），拿它当标题就会把总开关当成渠道开关。
+    wide = [(b[1], b[0] - b[2], t) for t, b, _ in texts
+            if b[1] < p.H * 0.15 and b[2] - b[0] >= p.W * 0.8]
+    return min(wide)[2] if wide else None
+
+
+CHANNEL_GROUP = ("类别", "Categories")   # vivo 旧系统把渠道行收在「类别」分组下面（#336）
+
+
+def group_floor(texts):
+    """「类别」分组标题的上沿。分组以上只有应用名和「允许通知」总开关，同名文字在那里不是渠道行。"""
+    return min((b[1] for t, b, _ in texts if t in CHANNEL_GROUP), default=None)
+
+
+def off_screen_name(p, root, parents, name):
+    """同名行已经读进 dump、坐标却落在屏幕下沿之外：列表读到了后面的行，只差翻一页。
+    标了不可见的节点（折叠屏合上时留下的另一块屏幕）不算：翻页看不到它，「在屏外」不说明还有下一页。"""
+    for n in root.iter("node"):
+        if (n.get("text") or n.get("content-desc") or "").strip() != name or bounds(n)[1] < p.H:
+            continue
+        node = n
+        while node is not None and node.get("visible-to-user") != "false":
+            node = parents.get(node)
+        if node is None:
+            return True
+    return False
 
 
 def allow_switches(p, root):
@@ -462,9 +489,16 @@ def via_app_page(p, pk, name, at):
         root = root if root is not None else p.tree()
         vivo = vivo_page(notification_focus(p))
         parents = {c: n for n in root.iter() for c in n}
-        for text, b, n in p.texts(root):
+        texts = p.texts(root)
+        floor = group_floor(texts) if vivo else None
+        if vivo and at.vivo_app is None and floor is not None:
+            # 这一屏有「类别」分组，说明是应用通知页：先记下 App 名。往下翻页后顶栏可能收起来（#336）
+            at.vivo_app = top_title(p, root)
+        for text, b, n in texts:
             if text != name or b[1] < p.H * 0.22 or n.get("checkable") == "true":
                 continue
+            if floor is not None and b[1] < floor:
+                continue                      # 「类别」以上是应用名和总开关，同名文字不算渠道行
             row, boxes = own(n, parents, p.on_screen)
             if row is None:
                 continue
@@ -472,8 +506,9 @@ def via_app_page(p, pk, name, at):
                 at.stage = "应用通知页这一行的开关没认出"
                 return wait_page(p, name, at)    # 内联开关：不当作导航行点；vivo 的渠道行也带 checked，要点进去
             if vivo:
-                # 同一次读屏里列表有这一行渠道，说明是总页：这时的顶栏才是 App 名（直达页可能还没退掉）
-                at.vivo_app = top_title(p, root)
+                # 同一次读屏里列表有这一行渠道，说明是总页：这时的顶栏才是 App 名（直达页可能还没退掉）。
+                # 翻页后顶栏可能已经不在了，先前记下的 App 名照样有效
+                at.vivo_app = at.vivo_app or top_title(p, root)
             before = p.sig()
             l, t, r, btm = bounds(n)
             p.click((l + r) // 2, (t + btm) // 2)
@@ -486,7 +521,18 @@ def via_app_page(p, pk, name, at):
             at.stage = "点进去后没认出渠道页"
             return wait_page(p, name, at)
         if not p.scroll_more():
-            break
+            # vivo 的列表可能没标 scrollable，而渠道行已经读进 dump、坐标在屏下（#336）：自己翻一页找它。
+            # 这条路绕过了 scroll_more 的「没标可滚动就不滑」守卫，所以照它的规矩补一次焦点检查：
+            # 滑动把页面带走了就停下，不当成「没找到这一行」
+            if not (vivo and off_screen_name(p, root, parents, name)):
+                break
+            focus, before = p.focus(), p.sig()
+            p.scroll()
+            if p.focus() != focus:
+                at.stage = "应用通知页翻页时离开了"
+                return None
+            if p.sig() == before:
+                break                     # 滑了没动：列表到底了，再滑也是空转
         root = None
     return None
 
