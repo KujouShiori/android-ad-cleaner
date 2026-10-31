@@ -15,6 +15,7 @@
 - 社区问题的归类与真机缺口见 [docs/09](docs/09-社区问题处理.md)：那里只记 GitHub 上看不到的判据与缺口，逐条回复与 issue 编号留在 issue 里。
 - 找「开关所属的行」先看 [tool/row.py](tool/row.py)：`line` 结构定界、`own` 多开关容器收窄、`title_of` 平铺列表按竖直距离分带；`fast.py` 与 `chan_fast.py` 消费它，不要另写一份。
 - 找「等页面认得出」先看 [tool/wait.py](tool/wait.py)：`settle` / `setting` / `wait_page` / `off` 都消费 `until()`，不要另写轮询循环。
+- 找「引擎报给客户端的状态」先看 [tool/events.py](tool/events.py)：五个 kind 与事件行格式只在那里定义（[ADR-0004](docs/adr/0004-engine-state-events.md)），引擎侧 `emit()`、`gui/app.py` 的 `_log()` 都走它；不要再按中文文案判断状态。
 - 造不连手机的 `Phone` 用 [tests/fixtures.py](tests/fixtures.py) 的 `phone_stub()`（`fake_phone()` 就是它加一条时间轴），装配只此一处。纯重构要给对拍证据时，同一文件还有 `all_pages()` 取 `tests/` 里的页面样本、`Clock` 假时钟、`Timeline` + `Device` 按时间轴换页。
 - 找「读屏 adapter」先看 [tool/reader.py](tool/reader.py)：`Phone.reader` 是手机读屏库或假设备的统一接口，`Phone.d` 是它的历史别名（机型脚本与测试用），新增读屏能力先加进 `Reader`。
 - adb 固定 platform-tools 37.0.1（`gui/app.py` 的 `ADB_PINNED`）；升级时改那张表，校验值按 Google `repository2-3.xml` 的 SHA-1 核对。
@@ -47,4 +48,4 @@ GitHub Issues（`gh` CLI）。见 `docs/agents/issue-tracker.md`。
 
 ### Domain docs
 
-single-context：根目录 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。`CONTEXT.md` 只放术语表（脚本 / 执行 / 等待 / 通知 / issue 状态五组定义）；模块边界的决定写进 `docs/adr/`（现有 `0001` 手机连接、`0002` Phone 状态、`0003` 客户端 import 与依赖），架构描述仍不写，等主流程整体重构。
+single-context：根目录 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。`CONTEXT.md` 只放术语表（脚本 / 执行 / 连接 / 事件 / 等待 / 通知 / issue 状态七组定义）；模块边界的决定写进 `docs/adr/`（现有 `0001` 手机连接、`0002` Phone 状态、`0003` 客户端 import 与依赖、`0004` 引擎状态事件），架构描述仍不写，等主流程整体重构。

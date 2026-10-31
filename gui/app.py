@@ -178,6 +178,9 @@ def chime():
 
 def child_env(adb, backups):
     e = dict(os.environ)
+    # 事件开关只由本客户端在跑任务时打开。用户 shell 里碰巧导出了它也不能生效：
+    # `_run()` 那些一次性命令会把输出直接解析（`status()` 取末行当 JSON）。
+    e.pop("AAC_EVENTS", None)
     e.update({"ADB": adb or "", "ADBUTILS_ADB_PATH": adb or "", "AAC_BACKUPS": backups,
               "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1", "AAC_GUI": "1"})
     if adb:
@@ -209,6 +212,16 @@ class Runner:
         return subprocess.Popen(cmd_for(script, *args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, encoding="utf-8", errors="replace", env=env,
                                 creationflags=NOWIN, bufsize=1)
+
+
+class Task:
+    """一个步骤。uses_ui：这一步要连读屏，前一步因读屏被占用失败时跳过它。
+    channels 非 None 表示这一步是关营销通知：运行前把勾选的渠道写进 channels.tsv，
+    args 由 `_work()` 换成 `-s <序列号> off <清单>`。"""
+
+    def __init__(self, title, script, args=(), uses_ui=False, channels=None):
+        self.title, self.script, self.args = title, script, args
+        self.uses_ui, self.channels = uses_ui, channels
 
 
 def os_name():
@@ -583,17 +596,18 @@ class Api:
                 return {"error": "已有任务在运行"}
             tasks = []
             if plan.get("backup", True):
-                tasks.append(("存改动前的快照", "run.py", ["-s", serial, "backup"]))
+                tasks.append(Task("存改动前的快照", "run.py", ["-s", serial, "backup"]))
             if plan.get("steps"):
-                tasks.append(("关闭各 App 里的广告开关", "run.py",
-                              ["-s", serial, "recipe", *plan["steps"], *(["--ref"] if plan.get("ref") else [])]))
+                tasks.append(Task("关闭各 App 里的广告开关", "run.py",
+                                  ["-s", serial, "recipe", *plan["steps"], *(["--ref"] if plan.get("ref") else [])],
+                                  uses_ui=True))
             if plan.get("channels"):
-                tasks.append(("关闭营销通知", "@channels", plan["channels"]))
+                tasks.append(Task("关闭营销通知", "chan_fast.py", uses_ui=True, channels=plan["channels"]))
             if plan.get("quickapp"):
-                tasks.append(("关闭快应用", "run.py", ["-s", serial, "quickapp", "off"]))
+                tasks.append(Task("关闭快应用", "run.py", ["-s", serial, "quickapp", "off"]))
             if plan.get("ads"):
-                tasks.append(("挂起广告组件", "run.py", ["-s", serial, "suspend", *plan["ads"]]))
-            tasks.append(("收尾", "run.py", ["-s", serial, "finish"]))
+                tasks.append(Task("挂起广告组件", "run.py", ["-s", serial, "suspend", *plan["ads"]]))
+            tasks.append(Task("收尾", "run.py", ["-s", serial, "finish"]))
             self.job = {"running": True, "lines": [], "idx": 0, "total": len(tasks), "title": "",
                         "results": [], "proc": None, "cancel": False, "t0": time.time(), "serial": serial,
                         "model": plan.get("model", "")}
@@ -601,76 +615,97 @@ class Api:
         return {"ok": True, "total": len(tasks)}
 
     def _log(self, s):
+        """记一行输出。事件行只改状态、不进日志，返回 None；人话返回存下来的文本。"""
         s = s.rstrip("\n")
-        if s.startswith("⏸ 已暂停"):
+        events = _tool("events")
+        if events.is_event(s):
+            self._event(events.parse(s))
+            return None
+        self.job["lines"].append(s)
+        return s
+
+    def _event(self, kind):
+        """引擎事件（ADR-0004）：暂停 / 继续 / 锁屏改提示状态，其余记进本步骤的事件集合；
+        都不进日志、不上报。"""
+        if kind is None:                # 前缀对上但解析不出来：当没有这个事件
+            return
+        if kind == "paused":
             self.job["paused"] = True
             chime()                     # 可以拿手机了
-        elif "手机锁屏了：请解锁手机" in s:
-            chime()                     # 要机主来解锁
-        elif s.startswith("▶ 继续执行"):
+        elif kind == "resumed":
             self.job["paused"] = False
-        self.job["lines"].append(s)
+        elif kind == "locked":
+            chime()                     # 要机主来解锁
+        else:
+            self.job.setdefault("step_events", set()).add(kind)
 
     def _work(self, tasks):
         j = self.job
         ui_busy = False
         self.resume()                   # 上次没清掉的暂停标记不能带进这次
-        for i, (title, script, args) in enumerate(tasks):
+        for i, task in enumerate(tasks):
+            j["step_events"] = set()
             if j.get("pause") and not j["cancel"]:
                 # 步骤之间的暂停；步骤里面的暂停由引擎在段与段、渠道与渠道之间处理
+                j["paused"] = True
+                chime()                 # 可以拿手机了：与引擎侧暂停点的提醒一致
                 self._log("⏸ 已暂停：现在可以操作手机。操作完回到桌面、保持解锁，再点「继续」")
                 while j.get("pause") and not j["cancel"]:
                     time.sleep(0.5)
+                j["paused"] = False
                 if not j["cancel"]:
                     self._log("▶ 继续执行")
-            if j["cancel"] and title != "收尾":
+            if j["cancel"] and task.title != "收尾":
                 continue                # 停止后仍跑收尾：改回插电常亮（以前停止会让手机一直亮着）
-            j["idx"], j["title"] = i + 1, title
-            self._log(f"\n▶ {title}")
-            needs_ui = script == "@channels" or (script == "run.py" and len(args) > 2 and args[2] == "recipe")
-            if ui_busy and needs_ui:
+            j["idx"], j["title"] = i + 1, task.title
+            self._log(f"\n▶ {task.title}")
+            if ui_busy and task.uses_ui:
                 reason = "读屏服务仍被占用，跳过本步骤；请先解决读屏连接再重试。"
                 self._log(reason)
-                j["results"].append({"title": title, "rc": 3, "skipped": True, "sec": 0, "tail": [reason]})
+                j["results"].append({"title": task.title, "rc": 3, "skipped": True, "sec": 0, "tail": [reason]})
                 continue
             line_start = len(j["lines"])
             t = time.time()
-            if script == "@channels":
+            script, args = task.script, list(task.args)
+            if task.channels is not None:
                 d = self.backups.latest(j["model"]) or self.backups.gui(j["model"])
                 fn = os.path.join(d, "channels.tsv")
                 with open(fn, "w", encoding="utf-8") as f:
                     f.write("# 包名\t渠道id\t渠道名\t应用名（客户端勾选）\n")
-                    for c in args:
-                        app = re.sub(r"[\t\r\n]+", " ", str(c.get("app") or "")).strip()
-                        f.write(f"{c['pkg']}\t{c['id']}\t{c['name']}\t{app}\n")
-                script, args = "chan_fast.py", ["-s", j["serial"], "off", fn]
+                    for c in task.channels:
+                        name = re.sub(r"[\t\r\n]+", " ", str(c.get("app") or "")).strip()
+                        f.write(f"{c['pkg']}\t{c['id']}\t{c['name']}\t{name}\n")
+                args = ["-s", j["serial"], "off", fn]
             try:
-                p = self.runner.spawn(script, *args, env_extra={"AAC_PAUSE_FILE": self.data.pause})
+                p = self.runner.spawn(script, *args, env_extra={"AAC_PAUSE_FILE": self.data.pause,
+                                                                "AAC_EVENTS": "1"})
                 j["proc"] = p
                 tail = []
                 for line in p.stdout:
-                    self._log(line); tail.append(line.strip()); tail = tail[-80:]
+                    shown = self._log(line)     # 事件行返回 None：不进步骤摘要（前端会展示 tail）
+                    if shown is not None:
+                        tail.append(shown.strip()); tail = tail[-80:]
                 rc = p.wait()
             except Exception as e:
                 rc, tail = -1, [str(e)]
                 self._log(f"✗ {e}")
-            if rc and j["cancel"] and title != "收尾":
+            if rc and j["cancel"] and task.title != "收尾":
                 # 用户点了停止：不是出错，不记诊断、不提示上报（错误日志 10-28：4 份是停止后上报的）
-                j["results"].append({"title": title, "rc": rc, "stopped": True, "sec": round(time.time() - t), "tail": tail})
+                j["results"].append({"title": task.title, "rc": rc, "stopped": True, "sec": round(time.time() - t), "tail": tail})
                 continue
-            j["results"].append({"title": title, "rc": rc, "sec": round(time.time() - t), "tail": tail})
+            j["results"].append({"title": task.title, "rc": rc, "sec": round(time.time() - t), "tail": tail})
             if rc:
                 detail = "\n".join(j["lines"][line_start:])
-                ui_busy = ui_busy or any(m in detail for m in ("UIAUTOMATION_BUSY", "DeviceBusyError", "正在使用这台手机的读屏服务"))
-                if "adb 连接断开了" in detail and not adb_present(self.adb, j["serial"]):
+                ui_busy = ui_busy or "ui_busy" in j["step_events"]
+                if "link_lost" in j["step_events"] and not adb_present(self.adb, j["serial"]):
                     # 手机已断开：后面每一步都会报同一段排查说明（错误日志 10-27），不再执行
-                    self._remember_error(title, j["serial"], detail)
+                    self._remember_error(task.title, j["serial"], detail)
                     reason = "手机和电脑已断开，这一步没有执行。重新连接手机后点「重试」。"
-                    for later, _, _ in tasks[i + 1:]:
-                        self._log(f"\n▶ {later}\n{reason}")
-                        j["results"].append({"title": later, "rc": 3, "skipped": True, "sec": 0, "tail": [reason]})
+                    for later in tasks[i + 1:]:
+                        self._log(f"\n▶ {later.title}\n{reason}")
+                        j["results"].append({"title": later.title, "rc": 3, "skipped": True, "sec": 0, "tail": [reason]})
                     break
-                error = self._remember_error(title, j["serial"], detail)
+                error = self._remember_error(task.title, j["serial"], detail)
                 if error.get("recovery"):
                     j["recovery"] = error["recovery"]
         self.resume()

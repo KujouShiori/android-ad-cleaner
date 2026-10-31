@@ -292,11 +292,12 @@ class ScrubTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             api = self.app.Api(directory)
             api.job = {"running": True, "cancel": False, "lines": [], "results": [], "serial": "test", "t0": 0}
-            failed = Mock(stdout=io.StringIO(adb_link.HINT + "\n")); failed.wait.return_value = 1
+            failed = Mock(stdout=io.StringIO('#aac:event {"kind": "link_lost"}\n' + adb_link.HINT + "\n")); failed.wait.return_value = 1
             with patch.object(self.app.subprocess, "Popen", side_effect=[failed]) as popen, \
                  patch.object(self.app, "adb_present", return_value=False):
-                api._work([("关闭营销通知", "run.py", ["-s", "test", "x"]), ("关闭快应用", "run.py", ["-s", "test", "quickapp", "off"]),
-                           ("收尾", "run.py", ["-s", "test", "finish"])])
+                api._work([self.app.Task("关闭营销通知", "run.py", ["-s", "test", "x"]),
+                           self.app.Task("关闭快应用", "run.py", ["-s", "test", "quickapp", "off"]),
+                           self.app.Task("收尾", "run.py", ["-s", "test", "finish"])])
             self.assertEqual(popen.call_count, 1)
             self.assertEqual([r.get("skipped", False) for r in api.job["results"]], [False, True, True])
             self.assertEqual("\n".join(api.job["lines"]).count("adb 连接断开了"), 1)

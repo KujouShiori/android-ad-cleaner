@@ -210,13 +210,13 @@ class GuiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, patch.object(self.app, "chime") as chime:
             api = self.app.Api(d)
             api.job = {"running": True, "cancel": False, "lines": [], "results": [], "serial": "t", "t0": 0}
-            api._log("  ! 手机锁屏了：请解锁手机并保持亮屏，解锁后自动继续（最多等 90 秒）")
-            api._log("⏸ 已暂停：现在可以操作手机。")
+            api._log('#aac:event {"kind": "locked"}')
+            api._log('#aac:event {"kind": "paused"}')
             api._log("  关  营销通知")
             self.assertEqual(chime.call_count, 2)
             done = Mock(stdout=io.StringIO("")); done.wait.return_value = 0
             with patch.object(self.app.subprocess, "Popen", return_value=done):
-                api._work([("收尾", "run.py", ["-s", "t", "finish"])])
+                api._work([self.app.Task("收尾", "run.py", ["-s", "t", "finish"])])
             self.assertEqual(chime.call_count, 3)
 
     def test_chime_plays_once_for_close_events_and_never_in_tests(self):

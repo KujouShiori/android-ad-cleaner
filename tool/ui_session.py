@@ -10,6 +10,8 @@ import tempfile
 import time
 
 import uiautomator2 as u2
+
+import events
 from uiautomator2.core import _http_request
 from uiautomator2.exceptions import AccessibilityServiceAlreadyRegisteredError, HTTPError
 
@@ -45,6 +47,7 @@ class DeviceLock:
                     time.sleep(0.5)
                     continue
                 self.file.close()
+                events.emit("ui_busy")
                 raise DeviceBusyError("本电脑另一个去广告任务正在使用这台手机的读屏服务，请结束该任务后重试。") from e
 
     def close(self):
