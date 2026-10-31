@@ -46,6 +46,10 @@ GitHub Issues（`gh` CLI）。见 `docs/agents/issue-tracker.md`。
 
 发版后要催哪些复测、报告者确认前不关闭哪些 issue，见 `docs/agents/release-followup.md`。每次发版都要过一遍这张清单。
 
+### Code review
+
+派审查的方法与规则见 `docs/agents/code-review.md`：基线钉 SHA、评审期间不改工作区、默认三轴。
+
 ### Domain docs
 
 single-context：根目录 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。`CONTEXT.md` 只放术语表（脚本 / 执行 / 连接 / 事件 / 等待 / 通知 / issue 状态七组定义）；模块边界的决定写进 `docs/adr/`（现有 `0001` 手机连接、`0002` Phone 状态、`0003` 客户端 import 与依赖、`0004` 引擎状态事件），架构描述仍不写，等主流程整体重构。
