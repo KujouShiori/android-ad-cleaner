@@ -45,6 +45,14 @@ Issues labelled `waiting-for-verify` have a fix on `main` that the reporter has 
 
 #287 在 2026-10-31 用 0.2.9 复测失败后已离开本队列（摘掉 `waiting-for-verify`、改回 `needs-info`），它不在下面这张表的催复测范围里。
 
+## 待真机反馈（不是 `waiting-for-verify`）
+
+下面这张票缺的是真机数据，不是修复后的复测：代码还没动，票保持 `needs-info`，下次发版催复测时一并 `@` 对方即可，不算 `waiting-for-verify`。
+
+| Issue | 谁 | 机型 / 系统 | 要什么 |
+| ----- | -- | ----------- | ------ |
+| #397 | @wowbbs | vivo X300 Ultra / V2547A / OriginOS 7 / Android 17 | V2547A 脚本的 `confirm2()` 注释已过时（引擎自 PR #239 起会读 Button 下级文字）。把广告跟踪段的 `confirm2()` 临时换成 `p.confirm()` 跑一次，或提供「温馨提示 → 取消 / 确认关闭」弹窗的 `uiautomator dump`。不依赖安装包，当前源码就能做 |
+
 ## 为什么不用 `ready-for-agent` 顶着
 
 一个已修完、只等真机确认的 issue，长着和待实现 issue 一模一样的外观：代码不在发布版里，报告者还在遇到问题。`ready-for-agent` 会让下一个接手的智能体（或人）从头再实现一遍；`needs-info` 会让人以为缺的是诊断数据。两种误判在 2026-10-29 都发生过一次。
