@@ -184,7 +184,7 @@ def ad_packages(brand):
 
 
 # 没有本型号脚本时用的同品牌参考脚本。以前取目录名排第一的那份，社区每加一个机型，
-# 别的手机用的参考脚本就可能跟着变（10-28 合并社区机型脚本时发现）；固定成维护者实测最全的一份。
+# 别的手机用的参考脚本就可能跟着变（10-28 合并社区机型脚本时发现）；固定成一份经过真机验证的最全的。
 REFERENCE = {"oppo": "oppo-PLP120", "honor": "honor-PNM-AN10", "xiaomi": "xiaomi-M154FF", "vivo": "vivo-V2547DA",
              "meizu": "meizu-MEIZU 21 Pro"}
 
