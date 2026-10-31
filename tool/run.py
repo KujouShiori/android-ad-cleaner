@@ -35,13 +35,11 @@ TOOL = os.path.join(ROOT, "tool")
 BACKUPS = root_from_env() or os.path.join(ROOT, "backups")
 
 # 各品牌常见的系统广告包（快应用另列在 QUICKAPP）。只在机主同意后挂起；挂起可一条命令还原。
+# 键是品牌族（见 FAMILY），不是 ro.product.brand 原值：POCO 归 xiaomi、一加 / realme 归 oppo、iQOO 归 vivo。
 AD_PKGS = {
-    "OPPO": ["com.opos.ads", "com.heytap.pictorial"],
-    "OnePlus": ["com.opos.ads", "com.heytap.pictorial"],
-    "realme": ["com.opos.ads", "com.heytap.pictorial"],
-    "HONOR": [],
-    "Xiaomi": ["com.miui.systemAdSolution"],
-    "Redmi": ["com.miui.systemAdSolution"],
+    "oppo": ["com.opos.ads", "com.heytap.pictorial"],
+    "honor": [],
+    "xiaomi": ["com.miui.systemAdSolution"],
     "vivo": [],
 }
 
@@ -145,6 +143,12 @@ def info(serial):
 
 FAMILY = {"oppo": "oppo", "oneplus": "oppo", "realme": "oppo", "honor": "honor",
           "xiaomi": "xiaomi", "redmi": "xiaomi", "poco": "xiaomi", "vivo": "vivo", "iqoo": "vivo"}
+
+
+def ad_packages(brand):
+    return AD_PKGS.get(FAMILY.get((brand or "").lower(), ""), [])
+
+
 # 没有本型号脚本时用的同品牌参考脚本。以前取目录名排第一的那份，社区每加一个机型，
 # 别的手机用的参考脚本就可能跟着变（10-28 合并社区机型脚本时发现）；固定成维护者实测最全的一份。
 REFERENCE = {"oppo": "oppo-PLP120", "honor": "honor-PNM-AN10", "xiaomi": "xiaomi-M154FF", "vivo": "vivo-V2547DA"}
@@ -411,7 +415,7 @@ def main():
             print(f"机型脚本：{os.path.relpath(r, ROOT)}；录制版本 {rb or '未标'}，{'版本一致' if ok else '版本不同：用安全模式跑，部分步骤可能找不到入口'}")
         else:
             print("机型脚本：没有。可跑：通知渠道 chan-scan/chan-off、广告包挂起；其余照 docs/清单 手动做，或用 tool/explore.py 探路")
-        for p in AD_PKGS.get(i["brand"], []):
+        for p in ad_packages(i["brand"]):
             exists = "package:" in sh(s, f"pm path {p}")
             print(f"  广告包 {p}：{'未安装' if not exists else ('已挂起' if suspended(s, p) else '未挂起')}")
         for q in quickapps(s):
@@ -630,7 +634,7 @@ def main():
             meta = recipe_meta(r)
             steps, rb = meta["steps"], meta["build"]
             ok = (not ref) and build_ok(i, rb)
-        ads = [{"pkg": p, "suspended": suspended(s, p)} for p in AD_PKGS.get(i["brand"], []) if installed(s, p)]
+        ads = [{"pkg": p, "suspended": suspended(s, p)} for p in ad_packages(i["brand"]) if installed(s, p)]
         backup = Backups(BACKUPS).latest(i["model"])
         print(json.dumps({
             "info": i, "locked": locked(s),

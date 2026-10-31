@@ -796,5 +796,66 @@ class RepeatedChannelNameTests(unittest.TestCase):
                          ("营销通知", True, (950, 980)))
 
 
+class AdPackagesTests(unittest.TestCase):
+    """#367：AD_PKGS 以 ro.product.brand 原值取键，POCO 取不到小米家族的广告包。
+    客户端「挂起广告组件」读的是 status-json 的 ads，所以 check 与 status-json 两个入口都守。"""
+
+    INFO = {"brand": "", "model": "M2012K11AC", "name": "POCO F3", "build": "OS1.0.1.0", "os": "", "android": "13"}
+
+    @staticmethod
+    def shell(_s, cmd):
+        """假 adb：只回答广告包装没装，其余命令回空。"""
+        return "package:/product/app/AdServices/base.apk" if cmd == "pm path com.miui.systemAdSolution" else ""
+
+    def check_output(self, brand):
+        out = io.StringIO()
+        with patch.object(run, "info", return_value=dict(self.INFO, brand=brand)), \
+             patch.object(run, "recipe_for", return_value=(None, False)), \
+             patch.object(run, "locked", return_value=False), \
+             patch.object(run, "input_blocked", return_value=False), \
+             patch.object(run, "suspended", return_value=False), \
+             patch.object(run, "quickapps", return_value=[]), \
+             patch.object(run, "sh", side_effect=self.shell), \
+             patch.object(sys, "argv", ["run.py", "-s", "test", "check"]), \
+             contextlib.redirect_stdout(out):
+            run.main()
+        return out.getvalue()
+
+    def status_json(self, brand):
+        out = io.StringIO()
+        with patch.object(run, "info", return_value=dict(self.INFO, brand=brand)), \
+             patch.object(run, "recipe_for", return_value=(None, False)), \
+             patch.object(run, "locked", return_value=False), \
+             patch.object(run, "suspended", return_value=False), \
+             patch.object(run, "quickapps", return_value=[]), \
+             patch.object(run, "fold_open", return_value=False), \
+             patch.object(run, "input_blocked", return_value=False), \
+             patch.object(run, "sh", side_effect=self.shell), \
+             patch.object(run, "Backups", return_value=Mock(latest=Mock(return_value=None))), \
+             patch.object(sys, "argv", ["run.py", "-s", "test", "status-json"]), \
+             contextlib.redirect_stdout(out):
+            run.main()
+        return json.loads(out.getvalue())
+
+    def test_check_lists_xiaomi_ad_package_for_poco_brand(self):
+        self.assertIn("广告包 com.miui.systemAdSolution：未挂起", self.check_output("POCO"))
+
+    def test_status_json_lists_xiaomi_ad_package_for_poco_brand(self):
+        self.assertEqual(self.status_json("POCO")["ads"],
+                         [{"pkg": "com.miui.systemAdSolution", "suspended": False}])
+
+    def test_iqoo_brand_stays_empty_in_both_entries(self):
+        self.assertNotIn("com.miui.systemAdSolution", self.check_output("iQOO"))
+        self.assertEqual(self.status_json("iQOO")["ads"], [])
+
+    def test_existing_brands_resolve_to_the_same_packages(self):
+        self.assertEqual({b: run.ad_packages(b) for b in
+                          ("Xiaomi", "Redmi", "OPPO", "OnePlus", "realme", "HONOR", "vivo")},
+                         {"Xiaomi": ["com.miui.systemAdSolution"], "Redmi": ["com.miui.systemAdSolution"],
+                          "OPPO": ["com.opos.ads", "com.heytap.pictorial"],
+                          "OnePlus": ["com.opos.ads", "com.heytap.pictorial"],
+                          "realme": ["com.opos.ads", "com.heytap.pictorial"], "HONOR": [], "vivo": []})
+
+
 if __name__ == "__main__":
     unittest.main()
