@@ -218,7 +218,7 @@ class ChannelTests(unittest.TestCase):
 
     def test_vivo_marketing_id_still_needs_marketing_keywords(self, _sleep):
         # 分类号只越过 SKIP，不越过营销关键词：否则 VPushChannel_0 下的服务类渠道
-        # 会进客户端清单并被默认勾选（gui/app.py 的 SERVICE 不含「消息」）（#337）
+        # 会进客户端清单并被默认勾选（channel_policy 的 default_unchecked 词表不含「消息」）（#337）
         self.assertEqual(self.scan(("VPushChannel_0", "订单物流")), "")
 
     def test_photo_spot_protection_outranks_vendor_marketing_id(self, _sleep):

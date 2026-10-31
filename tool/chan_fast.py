@@ -18,7 +18,7 @@ for _st in (sys.stdout, sys.stderr):
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fast import Phone, ScreenLocked, pause_point
 from row import PATH_DEPTH, bounds, own, path
-from channel_policy import protected_channel
+from channel_policy import classify, protected_channel
 from troubleshooting import XIAOMI_INPUT
 import adb_link
 import wait
@@ -73,17 +73,7 @@ def app_labels(reader, packages):
                 pass
     return out
 
-KW = re.compile(r"营销|活动|推荐|推广|热点|热门|资讯|新闻|福利|优惠|特惠|精选|精彩|运营|促销|红包|直播|种草|内容|头条|猜你|好物|权益|会员|签到|广告|recommend|promo|market|deal|news|topstory|upsell|offer", re.I)
-SKIP = re.compile(r"下载|更新|安装|上传|订单|物流|快递|交易|支付|付款|\bpayments?\b|账号|安全|验证|通话|来电|消息|聊天|私信|评论|互动|提醒|闹钟|日程|天气预警|系统|前台|后台|服务运行|播放|媒体"
-                  r"|热点和网络共享|智能热点|红包助手|盗窃|驾驶状态|权限建议|运营商|警告|告警|实时活动|赛事|护眼"
-                  r"|上层显示"     # 「“钱包”正在其他应用的上层显示内容」是悬浮窗提示，名字带「内容」被误选（#115）
-                  r"|提取|传输|已共享|正在进行", re.I)   # 识屏「内容提取」（系统锁定）、三星「内容已传输」等功能通知（错误日志 10-27）
 RETRY_MAX = 10
-
-# vivo 把营销推送固定编在 VPushChannel_0/4/6（AGENTS.md §5）。渠道名常是「运营消息」，
-# 会被 SKIP 的单字「消息」剔掉；分类号是厂商固定值，比渠道名可靠，越过的只有 SKIP，
-# 营销关键词仍要命中，否则同 ID 下的服务类渠道会混进客户端默认勾选（#337）。
-VIVO_MARKETING = re.compile(r"^VPushChannel_(?:0|4|6)$", re.I)
 
 # ---------- 一项的结局 ----------
 # 每个出口返回一个 Outcome；怎么记账（算不算失败、要不要重试、算不算拨动了、复查是否豁免）
@@ -659,9 +649,9 @@ def run(a):
         short = fixed = 0
         rows = []
         for (pk, cid), (name, imp, deleted) in sorted(d.items()):
-            if (imp != 0 and not deleted and not app_off.get(pk) and KW.search(name + " " + cid)
-                    and (VIVO_MARKETING.match(cid) or not SKIP.search(name))
-                    and not protected_channel(name, cid)):
+            judgement = classify(name, cid)
+            if (imp != 0 and not deleted and not app_off.get(pk) and judgement.marketing_candidate
+                    and not judgement.scan_excluded and not judgement.protected):
                 if truncated(cid):
                     short += 1
                 elif (pk, cid) in locked:

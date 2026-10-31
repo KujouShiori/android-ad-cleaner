@@ -168,8 +168,8 @@ class GreyedChannelTests(unittest.TestCase):
 
     def test_ocr_and_transfer_channels_are_not_marketing(self):
         for name in ("内容提取", "内容已传输", "已共享列表活动", "正在进行的活动的最新动态"):
-            self.assertTrue(chan.SKIP.search(name), name)
-        self.assertFalse(chan.SKIP.search("内容与营销"))
+            self.assertTrue(chan.classify(name).scan_excluded, name)
+        self.assertFalse(chan.classify("内容与营销").scan_excluded)
 
 
 class DisconnectTests(unittest.TestCase):
