@@ -17,6 +17,7 @@
 - 造不连手机的 `Phone` 用 [tests/fixtures.py](tests/fixtures.py) 的 `phone_stub()`（`fake_phone()` 就是它加一条时间轴），装配只此一处。纯重构要给对拍证据时，同一文件还有 `all_pages()` 取 `tests/` 里的页面样本、`Clock` 假时钟、`Timeline` + `Device` 按时间轴换页。
 - 找「读屏 adapter」先看 [tool/reader.py](tool/reader.py)：`Phone.reader` 是手机读屏库或假设备的统一接口，`Phone.d` 是它的历史别名（机型脚本与测试用），新增读屏能力先加进 `Reader`。
 - adb 固定 platform-tools 37.0.1（`gui/app.py` 的 `ADB_PINNED`）；升级时改那张表，校验值按 Google `repository2-3.xml` 的 SHA-1 核对。
+- `gui/app.py` 的 import 期不许有副作用：不建目录、不改 `sys.path`。要工具模块用 `_tool()` 惰性取；客户端数据路径走 `ClientData`，备份目录走 `tool/backups.py` 的 `Backups`（root 由调用方给）。测试直接 `import gui.app`，不要再写 `spec_from_file_location`。
 
 ## 错误日志上报
 

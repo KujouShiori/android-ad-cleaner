@@ -3,14 +3,14 @@
 假 transport 顶替真 adb：按顺序回答「成功 / 断线 / 其它失败」，并记下收到的命令。
 """
 import contextlib
-import importlib.util
 import os
 import subprocess
 import sys
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+from gui import app
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tool"))
@@ -368,9 +368,6 @@ class ParityTests(unittest.TestCase):
 
     def test_gui_adb_present(self):
         """客户端那句「手机此刻连着吗」：先 wait-for-device(10 秒) 再 get-state(8 秒)，argv 与结论都比对。"""
-        spec = importlib.util.spec_from_file_location("aac_link_test", Path(ROOT, "gui", "app.py"))
-        app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(app)
         for state in ("device\n", "offline\n", "", "adb: device 'S' not found\n"):
             with self.subTest(state=state.strip()):
                 script = [(0, "", ""), (0, state, "")]

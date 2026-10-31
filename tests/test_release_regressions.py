@@ -1,6 +1,5 @@
 """0.2.1：社区横屏、部分失败、通知默认选择及发布资源边界。"""
 import contextlib
-import importlib.util
 import io
 from pathlib import Path
 import sys
@@ -12,6 +11,7 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tool"))
 sys.path.insert(0, str(ROOT / "gui"))
+from gui import app
 import fast
 import run
 import chan_fast as chan
@@ -162,13 +162,11 @@ class NotificationSelectionTests(unittest.TestCase):
         self.assertEqual(output.getvalue(), "com.example\trecommend_4\t活动优惠\n")
 
     def test_gui_does_not_preselect_ambiguous_channels(self):
-        spec = importlib.util.spec_from_file_location("aac_gui_test", ROOT / "gui/app.py")
-        app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(app)
         names = ["其他", "普通通知", "推送通知", "清理加速", "个性化提示", "活动优惠"]
-        api = app.Api()
-        api._run = Mock(return_value=("\n".join(f"com.example\tpromo{i}\t{name}" for i, name in enumerate(names)), "", 0))
-        rows = api.chan_scan("test")
+        with tempfile.TemporaryDirectory() as directory:
+            api = app.Api(directory)
+            api._run = Mock(return_value=("\n".join(f"com.example\tpromo{i}\t{name}" for i, name in enumerate(names)), "", 0))
+            rows = api.chan_scan("test")
         self.assertEqual([r["name"] for r in rows if r["checked"]], ["活动优惠"])
 
 

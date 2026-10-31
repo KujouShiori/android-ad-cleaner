@@ -1,15 +1,17 @@
 """2026-10-27 社区反馈回归：荣耀 / 三星渠道页、内联渠道开关、多用户解析、小米点击被拒、adb 掉线。
 不用手机，模拟页面与系统回读。"""
 import contextlib
-import importlib.util
 import io
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import types
 import unittest
 from unittest.mock import Mock, patch
 import xml.etree.ElementTree as ET
+
+from gui import app
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tool"))
@@ -444,9 +446,9 @@ class KeepAwakeTests(unittest.TestCase):
 
 class GuiTests(unittest.TestCase):
     def setUp(self):
-        spec = importlib.util.spec_from_file_location("aac_gui_1027", ROOT / "gui/app.py")
-        self.app = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.app)
+        self.app = app
+        self.data = tempfile.TemporaryDirectory()
+        self.addCleanup(self.data.cleanup)
 
     def test_usb_hint_explains_missing_debug_interface_and_driver(self):
         self.assertIn("还没打开", self.app.usb_hint([("三星", "Galaxy S25", "OK", False)]))
@@ -479,7 +481,7 @@ class GuiTests(unittest.TestCase):
         self.assertIn("华为（没有调试接口）", hint)
 
     def test_diagnostics_include_device_count_and_other_adb(self):
-        api = self.app.Api()
+        api = self.app.Api(self.data.name)
         api.adb = "/opt/tools/adb"
         api.last_devices = "List of devices attached\nABC123\tunauthorized usb:1-1\n"
         with patch.object(self.app, "other_adb", return_value=["/opt/tools/adb", "C:/Phone/Helper/adb.exe"]), \

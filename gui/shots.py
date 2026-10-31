@@ -69,6 +69,6 @@ def run(w):
     w.destroy()
 
 
-api = app.Api()
+api = app.client_api()
 w = webview.create_window(app.APP_NAME, os.path.join(app.BASE, "gui", "web", "index.html"), js_api=api, width=1080, height=780)
 webview.start(run, w)
