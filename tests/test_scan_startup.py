@@ -15,9 +15,9 @@ from gui import app
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tool"))
+import adb_link
 import chan_fast as chan
 import fast
-import run
 
 
 def dump(importance=3):
@@ -87,9 +87,10 @@ class ReadOnlyTests(unittest.TestCase):
                 chan.parse(chan.ShellPhone("test"))
 
     def test_shell_call_has_serial_utf8_and_timeout(self):
-        with patch.object(subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=dump(), stderr="")) as shell:
+        with patch.object(adb_link, "adb_path", return_value="/fake/adb"), \
+             patch.object(subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=dump(), stderr="")) as shell:
             chan.parse(chan.ShellPhone("test"))
-        self.assertEqual(shell.call_args.args[0], [run.ADB, "-s", "test", "shell", "dumpsys notification --noredact"])
+        self.assertEqual(shell.call_args.args[0], ["/fake/adb", "-s", "test", "shell", "dumpsys notification --noredact"])
         self.assertEqual(shell.call_args.kwargs["timeout"], 60)
         self.assertEqual(shell.call_args.kwargs["encoding"], "utf-8")
 

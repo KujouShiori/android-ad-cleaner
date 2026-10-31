@@ -53,4 +53,4 @@ GitHub Issues（`gh` CLI）。见 `docs/agents/issue-tracker.md`。
 
 ### Domain docs
 
-single-context：根目录 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。`CONTEXT.md` 只放术语表（脚本 / 执行 / 连接 / 事件 / 等待 / 通知 / issue 状态七组定义）；模块边界的决定写进 `docs/adr/`（现有 `0001` 手机连接、`0002` Phone 状态、`0003` 客户端 import 与依赖、`0004` 引擎状态事件），架构描述仍不写，等主流程整体重构。
+single-context：根目录 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。`CONTEXT.md` 只放术语表（命令 / 脚本 / 执行 / 连接 / 事件 / 等待 / 通知 / issue 状态八组定义）；模块边界的决定写进 `docs/adr/`（现有 `0001` 手机连接、`0002` Phone 状态、`0003` 客户端 import 与依赖、`0004` 引擎状态事件、`0005` 命令与退出码），架构描述仍不写，等主流程整体重构。
