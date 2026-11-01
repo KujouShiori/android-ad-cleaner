@@ -1,10 +1,12 @@
-# 小米 HyperOS 3 机型脚本：Xiaomi 13 Ultra（2304FPN6DC）
+# 小米 HyperOS 3 机型脚本：Xiaomi 13 Ultra（2304FPN6DC）、Xiaomi 14 Pro（23116PN5BC）
 # 路径来源：2026-10-27 实机录制（OS3.0.308.0.WMACNXM / Android 16）。
+# 14 Pro 2026-10-29 社区实测（OS3.0.308.0.WNBCNXM / Android 16，Issue #317）：九段跑通、每步回读，
+# 只有浏览器「搜索设置」一页没命中目标开关。
 # 与 18 系列（OS4）的差异：系统广告的「更多安全设置」在「隐私与安全 → 安全」页里；
 # 浏览器个性化推荐是独立 Activity；手机管家没有独立「隐私设置」入口项，需滚到页面底部。
 # 用法：python3 tool/run.py -s 序列号 recipe [段名…]   不带段名=全跑
 BUILD = "OS3.0.308"
-MODELS = ["2304FPN6DC"]
+MODELS = ["2304FPN6DC", "23116PN5BC"]
 import time
 
 ONLY = globals().get("ONLY") or []
