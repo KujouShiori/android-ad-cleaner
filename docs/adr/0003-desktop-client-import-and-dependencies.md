@@ -9,6 +9,7 @@
 - **`data_dir` 必填、无默认值**（采纳）vs **留默认值**。默认值等于把用户目录带回构造期，正是这次要掐掉的东西。`adb` 与 `runner` 保留 `None` 默认：前者表示「没有 adb」，后者表示「自己造一个默认启动器」。
 - **`root_from_env()` 留在 `tool/backups.py`**（采纳）vs **`run.py` 与 `fast.py` 各自读 `AAC_BACKUPS`**。`Backups` 类本身不读环境变量、不认得客户端；这个自由函数只服务「本身是命令行进程」的调用方（`run.py` 的 `BACKUPS`、`fast.py` 的 run-log 目录、`display_backup_path`），把它挪走等于把同一个环境变量读两遍。
 - **`Runner` 留在 `gui/app.py`**（采纳）vs **新建 `gui/runner.py`**（否）。`gui/` 不是包，PyInstaller 能否静态收进新模块取决于 `pathex`，而 `bundle_data` 的清单里也没有 `gui/*.py`；本机无法验证打包结果。拆文件并入后续「窗口启动独立 module」。
+- **`gui/winpreflight.py` 独立成文件**（采纳，2026-11-01，#228）vs **内联进 `gui/app.py`**。上一条否掉 `gui/runner.py` 的理由是「本机无法验证打包能否收进同级模块」，这条顾虑经实测不成立：用与 `windows.spec` 同形的 `Analysis([ROOT/gui/app.py], pathex=[ROOT])` 建两文件工程打包，同级模块出现在 `Analysis-00.toc` 里，打出来的 exe 能 import 并运行。`winpreflight` 只被 `gui/app.py` 引用，不 import `tool/`，所以不碰 `_tool()` 那条惰性路径；打包之外还要兼顾「直接跑脚本」与「被测试当包 import」，用 `try: from . import winpreflight / except ImportError: import winpreflight` 两行兼容。
 - **`Backups(root)` 的 root 由调用方注入**（采纳）vs **模块里读 `AAC_BACKUPS`**（否）。客户端主进程没有这个环境变量（它只在 `child_env` 里给子进程），模块里读会让客户端的备份目录算到仓库根上去。
 - **`Api` 拆成 `AdbDownloader` / `Reporter` / 批处理调度**（否）。行为面比 import 净化大得多，且 GUI 没有自动化验收手段；本轮只做依赖注入，拆类留给跟踪票。
 
