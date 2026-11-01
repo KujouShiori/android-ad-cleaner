@@ -18,7 +18,8 @@
 几处等待没有收进来，因为它们的循环里夹着副作用，收进来就得给接口加钩子：
   fast.go、fast.tap(scrolls=0) 的 3 秒（每轮关弹窗）；
   fast.start() 的三处（等前台包 5 秒、等权限弹窗 3 秒、等空白页出字 8 秒）；
-  fast.wait_unlocked（要打印「请解锁手机」）；chan_fast.via_app_page 的翻页循环（是翻页不是等待）。
+  fast.wait_unlocked（要打印「请解锁手机」）；chan_fast.ChannelPage._enter_app_page 的翻页循环
+  （是翻页不是等待）。
 
 时钟和 sleep 由调用方传：fast / chan_fast 传自己模块里的 time.time / time.sleep，
 这样测试里 patch 那个模块的 time 就能换掉等待用的钟，不必改已有测试。

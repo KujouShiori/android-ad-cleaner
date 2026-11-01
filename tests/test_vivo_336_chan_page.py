@@ -152,7 +152,7 @@ class ChannelPageTests(unittest.TestCase):
     def test_unrecognised_page_is_reported_not_clicked(self):
         p = phone([CHANNEL_PAGE])
         with patch.object(chan, "parse", return_value=({("com.kuaishou.nebula", "kwai_level_p11_v1"): (CHANNEL, 3, False)}, {})), \
-             patch.object(chan, "via_app_page", return_value=None), patch.object(chan.time, "sleep"):
+             patch.object(chan.ChannelPage, "_enter_app_page", return_value=None), patch.object(chan.time, "sleep"):
             outcome = chan.toggle(p, "com.kuaishou.nebula", "kwai_level_p11_v1", False, CHANNEL)
         self.assertEqual(outcome.kind, chan.NOT_CONFIRMED)
         self.assertIn("未确认", outcome.detail)

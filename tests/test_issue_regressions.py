@@ -264,7 +264,8 @@ class ChannelTests(unittest.TestCase):
     def test_same_text_in_unrelated_page_cannot_authorize_click(self, _sleep):
         p = channel_phone()
         p.focus.return_value = "com.example/.MarketingSettings"
-        with patch.object(chan, "parse", return_value=snapshot()), patch.object(chan, "via_app_page", return_value=None):
+        with patch.object(chan, "parse", return_value=snapshot()), \
+             patch.object(chan.ChannelPage, "_enter_app_page", return_value=None):
             self.assertEqual(chan.toggle(p, "com.example", "promo", False, "营销").kind, chan.NOT_CONFIRMED)
         p.click.assert_not_called()
 
@@ -285,7 +286,8 @@ class ChannelTests(unittest.TestCase):
           <node text="静默通知" bounds="[60,520][600,590]"/>
           <node class="android.widget.Switch" checked="false" checkable="true" bounds="[900,520][1040,590]"/></node>''')
         root[0].append(extra)
-        with patch.object(chan, "parse", return_value=snapshot()), patch.object(chan, "via_app_page", return_value=None):
+        with patch.object(chan, "parse", return_value=snapshot()), \
+             patch.object(chan.ChannelPage, "_enter_app_page", return_value=None):
             self.assertEqual(chan.toggle(p, "com.example", "promo", False, "营销").kind, chan.NOT_CONFIRMED)
         p.click.assert_not_called()
 

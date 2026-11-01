@@ -161,7 +161,8 @@ class SideEffectTests(unittest.TestCase):
     def test_unconfirmed_page_reports_where_it_stopped(self, _sleep):
         p = self.phone()
         p.focus.return_value = "com.vendor.notify/.UnknownPage"
-        with patch.object(chan, "parse", return_value=snap()), patch.object(chan, "via_app_page", return_value=None):
+        with patch.object(chan, "parse", return_value=snap()), \
+             patch.object(chan.ChannelPage, "_enter_app_page", return_value=None):
             self.assertIn("停在 com.vendor.notify/.UnknownPage",
                           chan.toggle(p, "com.example", "promo", False, "营销通知").detail)
 

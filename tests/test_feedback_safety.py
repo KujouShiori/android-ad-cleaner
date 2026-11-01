@@ -111,7 +111,7 @@ class PhotoSpotTests(unittest.TestCase):
     def test_low_level_restore_can_enable_protected_channel(self):
         p = Mock(); p.locked.return_value = False
         with patch.object(chan, "parse", side_effect=[self.state(on=False), self.state()]), \
-             patch.object(chan, "wait_page", return_value=("允许通知", False, (500, 500))), \
+             patch.object(chan.ChannelPage, "refresh", return_value=chan.Reached(("允许通知", False, (500, 500)))), \
              patch.object(chan, "disabled_at", return_value=False), \
              patch.object(chan.time, "sleep"):
             self.assertEqual(chan.toggle(p, "com.example", "recommend", True, "找机位推荐").kind, chan.DONE)

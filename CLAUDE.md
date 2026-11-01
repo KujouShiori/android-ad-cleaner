@@ -18,7 +18,8 @@
 - 社区问题的归类与真机缺口见 [docs/09](docs/09-社区问题处理.md)：那里只记 GitHub 上看不到的判据与缺口，逐条回复与 issue 编号留在 issue 里。
 - 找「命令怎么分派、退出码怎么定」先看 [tool/run.py](tool/run.py) 的 `dispatch()` 与 `COMMANDS`：一条命令一个 `cmd_*(serial, rest) -> int`，`sys.exit` 只在 `__main__` 一处；退出码语义见 [ADR-0005](docs/adr/0005-run-command-handlers.md)。
 - 找「开关所属的行」先看 [tool/row.py](tool/row.py)：`line` 结构定界、`own` 多开关容器收窄、`title_of` 平铺列表按竖直距离分带；`fast.py` 与 `chan_fast.py` 消费它，不要另写一份。
-- 找「等页面认得出」先看 [tool/wait.py](tool/wait.py)：`settle` / `setting` / `wait_page` / `off` 都消费 `until()`，不要另写轮询循环。
+- 找「等页面认得出」先看 [tool/wait.py](tool/wait.py)：`settle` / `setting` / `ChannelPage.refresh` / `off` 都消费 `until()`，不要另写轮询循环。
+- 找「怎么走到渠道页、认出哪一行的开关」先看 [tool/chan_fast.py](tool/chan_fast.py) 的 `ChannelPage.open()`：直达 / 转应用通知页 / 内联行 / 同名放弃四类只在那里定义（[ADR-0007](docs/adr/0007-channel-page.md)）；`channel_switch` / `inline_switch` / `wait_page` / `via_app_page` 是一行前向壳，不要往里加逻辑。
 - 找「引擎报给客户端的状态」先看 [tool/events.py](tool/events.py)：五个 kind 与事件行格式只在那里定义（[ADR-0004](docs/adr/0004-engine-state-events.md)），引擎侧 `emit()`、`gui/app.py` 的 `_log()` 都走它；不要再按中文文案判断状态。
 - 找「渠道怎么判营销 / 服务 / 受保护」先看 [tool/channel_policy.py](tool/channel_policy.py) 的 `classify()`：营销候选、扫描排除、默认不勾、受保护、厂商营销 ID 五组判定只在那里定义（[ADR-0006](docs/adr/0006-channel-classification.md)）；`chan_fast` 的扫描分支与 `gui/app.py` 的 `chan_scan()` 都消费它，不要另写词表。
 - 改「一行输出怎么进界面」先看两处：`gui/app.py` 的 `_log()` 决定它进 `job["lines"]` 还是只当事件；[gui/web/index.html](gui/web/index.html) 的 `summarize()` 在认不出模式时直接显示 `results[].tail` 末行——`tail` 是第二个落点，机器行不能进。
@@ -58,4 +59,4 @@ GitHub Issues（`gh` CLI）。**开工前先有票**：任何实现 / 重构 / �
 
 ### Domain docs
 
-single-context：根目录 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。`CONTEXT.md` 只放术语表（命令 / 脚本 / 执行 / 连接 / 事件 / 等待 / 通知 / issue 状态八组定义）；模块边界的决定写进 `docs/adr/`（现有 `0001` 手机连接、`0002` Phone 状态、`0003` 客户端 import 与依赖、`0004` 引擎状态事件、`0005` 命令与退出码、`0006` 渠道判定），架构描述仍不写，等主流程整体重构。
+single-context：根目录 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。`CONTEXT.md` 只放术语表（命令 / 脚本 / 执行 / 连接 / 事件 / 等待 / 通知 / issue 状态八组定义）；模块边界的决定写进 `docs/adr/`（现有 `0001` 手机连接、`0002` Phone 状态、`0003` 客户端 import 与依赖、`0004` 引擎状态事件、`0005` 命令与退出码、`0006` 渠道判定、`0007` 渠道到达），架构描述仍不写，等主流程整体重构。

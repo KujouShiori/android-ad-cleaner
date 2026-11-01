@@ -171,7 +171,7 @@ class VivoTests(unittest.TestCase):
         p = phone([VIVO_APP, VIVO_CHANNEL], VIVO_FOCUS)
         p.vivo_seen = True
         with patch.object(chan, "parse", return_value=({("com.taobao.taobao", "promo"): ("营销通知", 3, False)}, {})), \
-             patch.object(chan, "via_app_page", return_value=None) as via, patch.object(chan.time, "sleep"):
+             patch.object(chan.ChannelPage, "_enter_app_page", return_value=None) as via, patch.object(chan.time, "sleep"):
             chan.toggle(p, "com.taobao.taobao", "promo", False, "营销通知")
         via.assert_called_once()
         self.assertFalse(any("CHANNEL_NOTIFICATION_SETTINGS" in str(c) for c in p.d.shell.call_args_list))
