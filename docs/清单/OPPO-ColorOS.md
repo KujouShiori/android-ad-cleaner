@@ -138,6 +138,13 @@ PMX110 / ColorOS 17 上逐个单独挂起实测（Issue #335，2026-10-30）。
 
 欢迎补充：提 PR 改这张表。
 
+### OPPO PBDM00（ColorOS 11 / Android 10）
+
+社区实测（[#415](https://github.com/rddmwmddr/android-ad-cleaner/issues/415)），维护者没有这台手机。
+
+- **通知页宿主是 `com.coloros.notificationmanager`**（ColorOS 14 起改成 `com.oplus.notificationmanager`）。0.2.9 及更早的引擎白名单只有 `oplus` 一个，`chan-off` 把 6 条候选全部跳过，每条都报「停在 com.coloros.notificationmanager/…；应用通知页没有打开」。白名单补上 `coloros` 后，报告者实测「内容推荐」「社交推荐」两条关闭成功，`dumpsys notification` 回读 `mImportance=0`。
+- **关不掉的两条是系统锁定**：`com.heytap.mcs` 的「精彩推荐」「news」渠道页开关是灰的，工具报「系统锁定」，属预期，不是工具没找到。
+
 ### realme 真我 GT5 Pro（RMX3888 / ColorOS 16.0.10.500）
 
 社区实测（[#271](https://github.com/rddmwmddr/android-ad-cleaner/issues/271)），维护者没有这台手机。

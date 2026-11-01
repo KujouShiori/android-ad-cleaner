@@ -132,6 +132,8 @@ python3 tool/run.py devices
 | 截图后下一次点击失灵 | 手机上的截图工具弹到前台 | 自动化期间少截图，用 `fast.py ls` 读屏 |
 | 无线调试断开 | 息屏太久 | 请用户关开一次无线调试，报新端口 |
 | ColorOS 14 一加通知渠道全被跳过 | 通知页位于独立的 `com.oplus.notificationmanager` 包 | 当前源码只接受已实测的 Channel / AppNotificationSettingsActivity，仍须核对渠道标题；AppNotification 总页不拨开关 |
+| ColorOS 11/12（Android 10–12）通知渠道全被跳过 | 通知页宿主是 `com.coloros.notificationmanager`，ColorOS 14 起才改叫 `com.oplus.notificationmanager`，两个包都要认 | 当前源码两代都在白名单里，活动名要求与 oplus 同构；遇到第三种写法照旧跳过，把整句「未确认…停在 …」的日志报上来（Issue #415） |
+| 应用通知页打不开，日志只说「应用通知页没有打开」 | 这句话以前混了三种情况：页面真没开、宿主不在白名单、前台被别的应用占着（GKD、MaaFramework 这类自动化工具最常见） | 当前源码在跳过时点名前台包名，按文案分别处置：写「不是通知设置页」时先在手机上退出那个应用再重跑；写「是这个应用自己」时系统没跳到通知设置页而是把应用打开了，手动进「设置 → 通知管理 → 选该应用」后重跑；写「是系统设置但不是通知页」或「是通知设置页但这个 Activity 没认出来」时把日志报上来——后者多半是没适配过的新系统（Issue #422） |
 | vivo 渠道直达参数无效 | `systemuiplugin` 页可能只有应用级总开关 | 当前源码直接跳过，不冒关闭整应用通知的风险（PR #20） |
 | vivo 旧系统（Funtouch 13）`chan-off` 全部跳过 | 渠道页顶栏没有固定 resource-id；渠道行在应用通知页「类别」分组下面，首屏读不到 | 当前源码在拿不到 toolbar id 时按几何认顶栏（顶部、几乎整屏宽的那段文字），并在「类别」以下翻页找行；认不出照旧跳过，不点页面上的第一个开关（Issue #336） |
 | 小米 msa 挂起后仍被拉起 | 系统 App 启动时 bind 广告服务 | 当前源码的 `run.py suspend` 挂起时一起尝试断网；安装包状态见 [更新记录](CHANGELOG.md) |

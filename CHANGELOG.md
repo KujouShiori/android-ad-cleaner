@@ -1,5 +1,11 @@
 # 更新记录
 
+## 未发布
+
+| 现象 | 来源 | 处理 |
+|---|---|---|
+| ColorOS 11/12（OPPO PBDM00 / Android 10）跑 `chan-off` 时 6 条渠道全部跳过，每条都写「停在 com.coloros.notificationmanager/…AppNotificationSettingsActivity；应用通知页没有打开」——两句自相矛盾；同一句「应用通知页没有打开」在 0.2.9 的 95 份报告里出现 174 次，其中红米一台机器 112 次停在第三方自动化工具 `com.aliothmoon.maafw.man`（MaaFramework），用户看不出是别人挡着 | [#415](https://github.com/rddmwmddr/android-ad-cleaner/issues/415)、[#422](https://github.com/rddmwmddr/android-ad-cleaner/issues/422) | 通知页身份白名单 `NOTIFY_HOSTS` 新增 `com.coloros.notificationmanager`：ColorOS 11/12 的通知页宿主是 `coloros`，ColorOS 14 起才是 `oplus`。正则与 oplus 条目同构，只认 `Channel` / `AppNotificationSettingsActivity`；「允许通知」总开关仍由 `_recognise()` 的 `AppNotification` 判定压住（去掉这条守卫，新用例会拿到应用总页上的开关而返红），该包的未知 Activity 与别的包冒用这个 Activity 名同样不认。`ChannelPage._focus()` 把读到的前台原文留在 `raw_focus`，应用通知页判空时据此点名是谁占着页面，分五类：前台为空或只读到窗口名（如 `NotificationShade`，不是「包名/Activity」）时沿用原文案、目标应用自己、已知通知宿主但 Activity 不认识（多半是新系统；只说「这个 Activity 没在已知列表里」——说成「不是通知设置页」会让人去退出一个系统包，说成「就是通知设置页」又把白名单的判据反过来）、系统设置但不是通知页、其余包（含桌面、启动器与第三方自动化工具）。不为此另发一次 dumpsys，也不劝「先暂停它」——桌面和启动器同样落进最后一类，包名对报告者已足够定位。`toggle()` 的「停在 …」是 `open()` 返回后另读的前台，两处各管一段、措辞不重叠。`_enter_app_page` 里另两处「翻页时离开了」不变。新增 13 项设备无关回归（基线干净副本 `origin/main@6b499f3` 718 项，本分支 731 项，2 项既有 skip 照旧），3.12 与 ruff 0.17.3 同过。没有 ColorOS 11 真机：页面样本按报告者的 dump 结构造，最终仍需报告者复测 |
+
 ## 0.3.0 · 2026-11-01
 
 给用户看的变化：华为渠道行与同名分组标题的区分（#287）、vivo 旧系统渠道页（#336）与「运营消息」渠道（#337）、安卓 17 页面没画完就找入口（#331）、小米应用商店误把正文当设置入口（#305）、OPPO 关快应用后负一屏快递卡片打不开（#335）、POCO 广告组件（#367）、连接提示品牌认错（#357）、Android 版本为空（#195）、魅族其他机型可借用 21 Pro 参考脚本（#379）；新增 vivo X Fold6、Redmi Note 14 5G、一加 Ace 6T、小米 14 Pro（共用 13 Ultra 脚本）机型脚本；新增新机型适配辅助 `run.py adapt`。其余是引擎重构（ADR-0004 至 ADR-0007）：客户端改用结构化事件判断暂停 / 锁屏 / 读屏被占用 / 断开，`run.py` 按命令拆分，渠道分类和渠道页识别各收成一处。发版前 698 项设备无关回归通过；Android 15 模拟器验证检测、读屏、营销通知扫描 / 关闭 / 还原、快照、收尾，客户端执行流程的暂停 / 继续 / 停止与提示音。没有真机复测。

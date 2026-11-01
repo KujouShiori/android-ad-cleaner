@@ -258,6 +258,8 @@ ALLOW = {"允许通知", "显示通知", "Allow notifications", "Show notificati
 NOTIFY_HOSTS = {
     # ColorOS 14 一加 Ace 2 Pro 实测；ColorOS 17 Find X9 Ultra 社区实测（#165）
     "com.oplus.notificationmanager": re.compile(r"^com\.oplus\.notificationmanager\.(?:Channel|App)NotificationSettingsActivity$"),
+    # ColorOS 11/12（Android 10–12）的宿主是 coloros 而不是 oplus：OPPO PBDM00 / ColorOS 11 实测（#415）
+    "com.coloros.notificationmanager": re.compile(r"^com\.coloros\.notificationmanager\.(?:Channel|App)NotificationSettingsActivity$"),
     # 荣耀 MagicOS 10 PTP-AN00 社区实测（#86）。华为 EMUI / HarmonyOS 4 和旧版荣耀按同一结构识别，未经实测
     "com.hihonor.systemmanager": re.compile(r"^com\.hihonor\.notificationmanager\.ui\.\w*Notification\w*Activity$"),
     "com.huawei.systemmanager": re.compile(r"^com\.huawei\.notificationmanager\.ui\.\w*Notification\w*Activity$"),
@@ -377,15 +379,17 @@ class ChannelPage:
 
     def __init__(self, p, name, pk="", cid="", vivo_app=None):
         self.p, self.name, self.pk, self.cid, self.vivo_app = p, name, pk, cid, vivo_app
-        self.stage, self.why = "", ""
+        self.stage, self.why, self.raw_focus = "", "", ""
 
     # ---------- 认页与认行 ----------
     def _focus(self):
         """vivo 的应用通知总页和单个渠道页是同一个 Activity（X300 Ultra / OriginOS 6 实测）：
         总页标题是 App 名，「允许通知」管整个 App；渠道页标题是渠道名，开关数随渠道开关状态变化。
-        这里只认页面身份，区分交给 `_recognise()`。读屏策略写回 Phone（ADR-0002）。"""
+        这里只认页面身份，区分交给 `_recognise()`。读屏策略写回 Phone（ADR-0002）。
+        读到的前台原文留在 raw_focus：判空时要点名是谁占着页面，再读一次可能已经是另一页（#422）。"""
         p = self.p
         focus = p.focus()
+        self.raw_focus = focus
         package, _, activity = focus.partition("/")
         if activity.startswith("."):
             activity = package + activity
@@ -399,6 +403,25 @@ class ChannelPage:
             p.systemui_text = package == "com.android.systemui"   # texts() 默认不读 systemui 的文字（那是状态栏）
             return focus
         return focus if "settings" in package.lower() and ("notification" in activity.lower() or "SubSettings" in activity) else ""
+
+    def _unopened_stage(self):
+        """应用通知页没认出来时点名真实前台（#422）：「应用通知页没有打开」以前把三种情况混成一
+        句——页面真没开、宿主不认识（#415 报告里就出现「停在 com.coloros.notificationmanager」
+        与「没有打开」并列）、前台被别的应用占着。包名对报告者已够定位，不译成应用名；
+        也不劝「先暂停它」——桌面和启动器同样落进这里。"""
+        package, sep, _ = self.raw_focus.partition("/")
+        if not sep:
+            # 通知栏拉下时 dumpsys 给的是窗口名（u0 NotificationShade），不是「包名/Activity」
+            return "应用通知页没有打开"
+        if package == self.pk:
+            return f"应用通知页没有打开，前台是 {package}，是这个应用自己"
+        if package in NOTIFY_HOSTS or package in VIVO_HOSTS:
+            # 包名认识、Activity 不认识：多半是没见过的新系统。只说这句事实——说成「不是通知设置页」
+            # 会让人去退出一个系统包（#415 的混淆换个说法），说成「就是通知设置页」又把白名单的判据反过来了
+            return f"前台是 {package}，这个 Activity 没在已知列表里"
+        if "settings" in package.lower():
+            return f"应用通知页没有打开，前台是 {package}，是系统设置但不是通知页"
+        return f"应用通知页没有打开，前台是 {package}，不是通知设置页"
 
     def _recognise(self):
         """同时确认渠道标题、设置页身份和明确的通知开关；绝不取页面第一个开关。"""
@@ -534,7 +557,7 @@ class ChannelPage:
         if not wait.until(app_page_shown, tries=15, poll=POLL,
                           now=time.monotonic, sleep=time.sleep):
             if not self._focus():
-                self.stage = "应用通知页没有打开"
+                self.stage = self._unopened_stage()
                 return None
         self.stage = "应用通知页里没找到这一行"
         for _ in range(9):
