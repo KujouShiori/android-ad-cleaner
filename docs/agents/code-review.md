@@ -4,7 +4,7 @@
 
 ## 基线钉 SHA
 
-派审查前先 `git rev-parse origin/main`，把那个 SHA 和 `git diff <sha>` 一起写进 prompt，不要传分支名 `main`：别的会话合了 PR 之后，各轴会数到不同的树。
+派审查前先取本分支的基点：`git merge-base HEAD origin/main`，把那个 SHA 和 `git diff <sha>` 一起写进 prompt。不要传分支名 `main`，也不要用 `origin/main` 当时的位置：别的会话合了 PR 之后，那个位置会把别人的提交算进本分支的改动面，各轴会数到不同的树。基点按本地的 `origin/main` 算，取到的比预期旧就先 `git fetch origin main`；分支 rebase、或者把 `origin/main` 合并进来之后，基点会前移，也要重取。
 
 分工：Spec 轴只核票面覆盖，不查计数；数字对不上归 Standards 轴一次说清。代理报回来的计数自己复核后再写进文档。
 
