@@ -8,6 +8,11 @@
 import hashlib, importlib, json, os, platform, re, runpy, subprocess, sys, threading, time, urllib.error, urllib.request, uuid, zipfile
 from pathlib import Path
 
+try:                                # 当包导入（测试）；直接跑脚本、打包时它是顶层模块
+    from . import winpreflight
+except ImportError:
+    import winpreflight
+
 APP_NAME = "安卓去广告"
 VERSION = "0.2.9"
 FROZEN = getattr(sys, "frozen", False)
@@ -967,6 +972,38 @@ def smoke_gui(window, result):
         window.destroy()
 
 
+def startup_advice(state, blocked, error):
+    """窗口起不来时给用户看的文案，以及要不要跳微软官网（#228）。
+
+    以前一律说「缺少 WebView2」，portable 包解压后文件带 MOTW 的现场被指到装不上的东西上。
+    """
+    if state == "missing":
+        return ("这台电脑缺少微软 Edge WebView2 运行时，界面没法显示。\n\n"
+                "点「确定」打开微软官网，下载安装「Evergreen Bootstrapper」后重新打开本程序。\n\n"
+                f"（{error}）", True)
+    if blocked:
+        return ("这台电脑可能已经装了 WebView2，但程序文件被 Windows 标记成「来自网络」，"
+                "加载时被拦住了。\n\n"
+                "办法一：对下载的 zip 压缩包点右键 →「属性」→ 勾选「解除锁定」→ 确定，重新解压后再打开。\n"
+                "办法二：zip 已经删了，就在解压出来的文件夹里按住 Shift 点右键 →"
+                "「在此处打开 PowerShell 窗口」，粘贴下面这行后回车：\n"
+                "Get-ChildItem . -Recurse -File | Unblock-File\n\n"
+                f"（{error}）", False)
+    return ("程序启动失败，原因不是缺少 WebView2。\n\n"
+            "把下面括号里的原文发到 "
+            "https://github.com/rddmwmddr/android-ad-cleaner/issues/new ，我们按它定位。\n\n"
+            f"（{error}）", False)
+
+
+def startup_failed(error):
+    import ctypes, webbrowser
+    text, open_site = startup_advice(winpreflight.webview2_state(),
+                                     winpreflight.blocked_files(BASE), error)
+    ctypes.windll.user32.MessageBoxW(0, text, APP_NAME, 0x40)
+    if open_site:
+        webbrowser.open("https://developer.microsoft.com/microsoft-edge/webview2/")
+
+
 def main():
     if len(sys.argv) > 2 and sys.argv[1] == "--cli":
         cli_main(); return
@@ -987,15 +1024,11 @@ def main():
     if IS_WIN:
         try:
             webview.start(gui="edgechromium", **options)
-        except Exception as e:      # 缺 WebView2 运行时（部分 Windows 10）
+        except Exception as e:      # 启动失败：缺 WebView2、程序文件被 MOTW 拦、其他（#228）
             if smoke:
+                print(f"startup: {winpreflight.describe(BASE)}", flush=True)
                 raise
-            import ctypes, webbrowser
-            url = "https://developer.microsoft.com/microsoft-edge/webview2/"
-            ctypes.windll.user32.MessageBoxW(0, "这台电脑缺少微软 Edge WebView2 运行时，界面没法显示。\n\n"
-                                                "点「确定」打开微软官网，下载安装「Evergreen Bootstrapper」后重新打开本程序。\n\n"
-                                                f"（{e}）", APP_NAME, 0x40)
-            webbrowser.open(url)
+            startup_failed(e)
     else:
         webview.start(**options)
     if smoke:
