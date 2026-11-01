@@ -989,19 +989,31 @@ def startup_advice(state, blocked, error):
                 "「在此处打开 PowerShell 窗口」，粘贴下面这行后回车：\n"
                 "Get-ChildItem . -Recurse -File | Unblock-File\n\n"
                 f"（{error}）", False)
-    return ("程序启动失败，原因不是缺少 WebView2。\n\n"
+    if state == "unknown":
+        return ("程序启动失败。这台电脑的 WebView2 状态没能确认（多半是注册表读取受限），"
+                "所以下面的原因不一定是缺运行时。\n\n"
+                "如果这是 Windows 10 且从没装过，先装一个再试：\n"
+                "https://developer.microsoft.com/microsoft-edge/webview2/\n\n"
+                "装过还这样，把括号里的原文发到 "
+                "https://github.com/rddmwmddr/android-ad-cleaner/issues/new 。\n\n"
+                f"（{error}）", False)
+    return ("程序启动失败。WebView2 运行时在，程序文件也没有被 Windows 锁定，"
+            "是按别的原因退出的。\n\n"
             "把下面括号里的原文发到 "
             "https://github.com/rddmwmddr/android-ad-cleaner/issues/new ，我们按它定位。\n\n"
             f"（{error}）", False)
 
 
-def startup_failed(error):
+def startup_failed(error, preflight=None, notify=None, open_url=None):
+    """按归因弹出提示（#228）。三个协作者可注入，接线本身在非 Windows 上也能验。"""
     import ctypes, webbrowser
-    text, open_site = startup_advice(winpreflight.webview2_state(),
-                                     winpreflight.blocked_files(BASE), error)
-    ctypes.windll.user32.MessageBoxW(0, text, APP_NAME, 0x40)
+    preflight = preflight or winpreflight
+    notify = notify or (lambda text: ctypes.windll.user32.MessageBoxW(0, text, APP_NAME, 0x40))
+    text, open_site = startup_advice(preflight.webview2_state(),
+                                     preflight.blocked_files(BASE), error)
+    notify(text)
     if open_site:
-        webbrowser.open("https://developer.microsoft.com/microsoft-edge/webview2/")
+        (open_url or webbrowser.open)("https://developer.microsoft.com/microsoft-edge/webview2/")
 
 
 def main():

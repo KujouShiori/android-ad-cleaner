@@ -61,17 +61,15 @@ def webview2_state(read=None):
 def blocked_files(root, detect=None):
     """`root` 下那两个关键 dll 里带 MOTW 的绝对路径。
 
-    PyInstaller 6 把依赖放进 `_internal`，而 `sys._MEIPASS` 指的就是它；打包器版本没钉，
-    两种布局都查。文件不在就不探测——`detect` 只在真存在时才被调用。
+    `root` 传 `sys._MEIPASS`：PyInstaller 6 的 onedir 把它指到 `_internal`，依赖就在这一层。
+    文件不在就不探测——`detect` 只在真存在时才被调用。
     """
     detect = detect or has_zone_identifier
     found = []
     for rel in BLOCKED_RELATIVE:
-        for base in (root, os.path.join(root, "_internal")):
-            path = os.path.join(base, *rel)
-            if os.path.isfile(path) and detect(path):
-                found.append(path)
-                break
+        path = os.path.join(root, *rel)
+        if os.path.isfile(path) and detect(path):
+            found.append(path)
     return tuple(found)
 
 

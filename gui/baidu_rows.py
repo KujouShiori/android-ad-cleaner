@@ -52,8 +52,9 @@ SETUP = {
     "win-setup": ["双击 {file}，按提示安装。",
                   "弹出「Windows 已保护你的电脑」：点「更多信息」→「仍要运行」（安装程序没有代码签名）。",
                   "提示缺少 WebView2：到微软官网安装「WebView2 Evergreen Bootstrapper」，然后打开本程序。"],
-    "win-zip": ["解压 {file}，双击里面的 AndroidAdCleaner.exe。",
+    "win-zip": ["先对下载的 zip 点右键 →「属性」→ 勾选「解除锁定」→ 确定，再解压，双击里面的 AndroidAdCleaner.exe。",
                 "弹出「Windows 已保护你的电脑」：点「更多信息」→「仍要运行」。",
+                "提示「程序文件被 Windows 标记成「来自网络」」：按第一条重新解除锁定再解压。",
                 "提示缺少 WebView2：到微软官网安装「WebView2 Evergreen Bootstrapper」，然后打开本程序。"],
 }
 CHECK = {"mac": "shasum -a 256 文件名（终端）", "win-setup": "Get-FileHash 文件名（PowerShell）", "win-zip": "Get-FileHash 文件名（PowerShell）"}

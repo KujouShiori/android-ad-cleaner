@@ -9,13 +9,20 @@ from pathlib import Path
 
 from gui import winpreflight
 
-CID = winpreflight.WEBVIEW2_CLIENT_ID
+# 三处实际存在的注册表位置，按报告者给出的路径写死，不从被测代码里取。
+KEY_64 = r"SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+KEY_32 = r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+KEY_USER = r"Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+VERSION = "156.0.3414.50"
+
+DLLS = (("pythonnet", "runtime", "Python.Runtime.dll"),
+        ("clr_loader", "ffi", "dlls", "amd64", "ClrLoader.dll"))
 
 
 def fake_read(values):
-    """values: {(hive, 客户端 ID): pv 或异常}；不在表里的键一律当作键不存在。"""
+    """values: {(hive, 完整键路径): pv 或异常}；不在表里的键一律当作键不存在。"""
     def read(hive, path):
-        value = values.get((hive, path.rsplit("\\", 1)[-1]))
+        value = values.get((hive, path))
         if isinstance(value, Exception):
             raise value
         if value is None:
@@ -32,25 +39,40 @@ def always_raise(error):
     return read
 
 
+def make_dlls(root):
+    for rel in DLLS:
+        path = root.joinpath(*rel)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+
+
 class RegistryStateTests(unittest.TestCase):
-    def test_installed_when_one_key_has_a_version(self):
-        read = fake_read({("HKLM", CID): "156.0.3414.50"})
-        self.assertEqual(winpreflight.webview2_state(read), "installed")
+    def test_installed_from_the_64bit_key(self):
+        self.assertEqual(winpreflight.webview2_state(fake_read({("HKLM", KEY_64): VERSION})),
+                         "installed")
+
+    def test_installed_from_the_32bit_key(self):
+        self.assertEqual(winpreflight.webview2_state(fake_read({("HKLM", KEY_32): VERSION})),
+                         "installed")
+
+    def test_installed_from_the_per_user_key(self):
+        self.assertEqual(winpreflight.webview2_state(fake_read({("HKCU", KEY_USER): VERSION})),
+                         "installed")
 
     def test_missing_when_no_key_exists(self):
         self.assertEqual(winpreflight.webview2_state(fake_read({})), "missing")
 
     def test_unknown_when_every_key_raises(self):
-        read = always_raise(PermissionError("拒绝访问"))
-        self.assertEqual(winpreflight.webview2_state(read), "unknown")
+        self.assertEqual(winpreflight.webview2_state(always_raise(PermissionError("拒绝访问"))),
+                         "unknown")
 
     def test_unknown_does_not_hide_a_real_install(self):
-        read = fake_read({("HKLM", CID): PermissionError("拒绝访问"),
-                          ("HKCU", CID): "156.0.3414.50"})
+        read = fake_read({("HKLM", KEY_64): PermissionError("拒绝访问"),
+                          ("HKCU", KEY_USER): VERSION})
         self.assertEqual(winpreflight.webview2_state(read), "installed")
 
     def test_empty_version_counts_as_missing(self):
-        self.assertEqual(winpreflight.webview2_state(fake_read({("HKLM", CID): ""})), "missing")
+        self.assertEqual(winpreflight.webview2_state(fake_read({("HKLM", KEY_64): ""})), "missing")
 
     @unittest.skipIf(sys.platform == "win32", "Windows 上默认读取会真读注册表")
     def test_default_reader_does_not_raise_off_windows(self):
@@ -63,35 +85,23 @@ class BlockedFilesTests(unittest.TestCase):
         self.addCleanup(self.dir.cleanup)
         self.root = Path(self.dir.name)
 
-    def touch(self, *parts):
-        path = self.root.joinpath(*parts)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("", encoding="utf-8")
-        return path
-
     def test_reports_the_two_load_bearing_dlls(self):
-        runtime = self.touch("pythonnet", "runtime", "Python.Runtime.dll")
-        loader = self.touch("clr_loader", "ffi", "dlls", "amd64", "ClrLoader.dll")
+        make_dlls(self.root)
         blocked = winpreflight.blocked_files(str(self.root), detect=lambda p: True)
-        self.assertEqual({Path(p) for p in blocked}, {runtime, loader})
+        self.assertEqual({Path(p).name for p in blocked},
+                         {"Python.Runtime.dll", "ClrLoader.dll"})
 
     def test_ignores_files_without_the_stream(self):
-        self.touch("pythonnet", "runtime", "Python.Runtime.dll")
+        make_dlls(self.root)
         self.assertEqual(winpreflight.blocked_files(str(self.root), detect=lambda p: False), ())
 
     def test_does_not_probe_files_that_are_not_there(self):
         probed = []
-        winpreflight.blocked_files(str(self.root),
-                                   detect=lambda p: probed.append(p) or True)
+        winpreflight.blocked_files(str(self.root), detect=lambda p: probed.append(p) or True)
         self.assertEqual(probed, [])
 
-    def test_finds_the_dlls_under_internal_layout(self):
-        runtime = self.touch("_internal", "pythonnet", "runtime", "Python.Runtime.dll")
-        blocked = winpreflight.blocked_files(str(self.root), detect=lambda p: True)
-        self.assertEqual(blocked, (str(runtime),))
-
     def test_default_detector_reports_nothing_for_a_plain_file(self):
-        self.touch("pythonnet", "runtime", "Python.Runtime.dll")
+        make_dlls(self.root)
         self.assertEqual(winpreflight.blocked_files(str(self.root)), ())
 
 
@@ -100,15 +110,10 @@ class DescribeTests(unittest.TestCase):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
         self.root = Path(self.dir.name)
-        for rel in (("pythonnet", "runtime", "Python.Runtime.dll"),
-                    ("clr_loader", "ffi", "dlls", "amd64", "ClrLoader.dll")):
-            path = self.root.joinpath(*rel)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("", encoding="utf-8")
+        make_dlls(self.root)
 
     def test_line_names_both_facts(self):
-        line = winpreflight.describe(str(self.root),
-                                     read=fake_read({("HKLM", CID): "156.0.3414.50"}),
+        line = winpreflight.describe(str(self.root), read=fake_read({("HKLM", KEY_64): VERSION}),
                                      detect=lambda p: True)
         self.assertEqual(line, "webview2=installed motw=yes")
 
@@ -137,17 +142,49 @@ class StartupAdviceTests(unittest.TestCase):
         self.assertNotIn("缺少微软 Edge WebView2 运行时", text)
         self.assertFalse(open_site)
 
-    def test_unknown_failure_shows_the_real_error_and_a_feedback_link(self):
-        text, open_site = self.advice("installed")
-        self.assertIn("loading Python.Runtime.dll failed", text)
-        self.assertIn("issues/new", text)
+    def test_unknown_state_says_it_could_not_be_confirmed(self):
+        text, open_site = self.advice("unknown")
+        self.assertIn("没能确认", text)
         self.assertNotIn("缺少微软 Edge WebView2 运行时", text)
         self.assertFalse(open_site)
 
-    def test_unknown_registry_state_is_not_treated_as_missing(self):
-        text, open_site = self.advice("unknown")
-        self.assertNotIn("缺少微软 Edge WebView2 运行时", text)
+    def test_installed_without_blocking_sends_the_error_along(self):
+        text, open_site = self.advice("installed")
+        self.assertIn("loading Python.Runtime.dll failed", text)
+        self.assertIn("issues/new", text)
         self.assertFalse(open_site)
+
+
+class StartupFailedWiringTests(unittest.TestCase):
+    """`startup_failed` 把归因喂给弹窗、并且只在缺运行时那一路开官网。"""
+
+    class Verdict:
+        def __init__(self, state, blocked=()):
+            self.state, self.blocked = state, blocked
+
+        def webview2_state(self):
+            return self.state
+
+        def blocked_files(self, root):
+            return tuple(self.blocked)
+
+    def run_with(self, state, blocked=()):
+        from gui import app
+        seen, opened = [], []
+        app.startup_failed(RuntimeError("boom"), preflight=self.Verdict(state, blocked),
+                           notify=seen.append, open_url=opened.append)
+        return seen, opened
+
+    def test_blocked_verdict_reaches_the_dialog_without_opening_the_site(self):
+        seen, opened = self.run_with("installed", blocked=("x",))
+        self.assertEqual(len(seen), 1)
+        self.assertIn("解除锁定", seen[0])
+        self.assertEqual(opened, [])
+
+    def test_missing_verdict_opens_the_webview2_page(self):
+        seen, opened = self.run_with("missing")
+        self.assertIn("Evergreen Bootstrapper", seen[0])
+        self.assertEqual(opened, ["https://developer.microsoft.com/microsoft-edge/webview2/"])
 
 
 if __name__ == "__main__":
